@@ -1,0 +1,7 @@
+[package]
+name = "arcadium-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arcadium-core = { path = "../arcadium-core" }
