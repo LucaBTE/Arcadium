@@ -41,7 +41,7 @@ fn run_app(
     let mut app = App::new();
 
     while !app.should_quit {
-        terminal.draw(ui::render)?;
+        terminal.draw(|frame| ui::render(frame, &app))?;
         app.handle_events()?;
     }
 

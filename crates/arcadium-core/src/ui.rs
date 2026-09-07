@@ -6,7 +6,9 @@ use ratatui::{
     Frame,
 };
 
-pub fn render(frame: &mut Frame) {
+use crate::app::App;
+
+pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     let main_block = Block::default()
@@ -23,29 +25,49 @@ pub fn render(frame: &mut Frame) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Length(5),
-            Constraint::Percentage(30),
-            Constraint::Length(3),
-            Constraint::Min(0),
+            Constraint::Percentage(20),
+            Constraint::Length(4),
+            Constraint::Length(1),
+            Constraint::Min(8),
+            Constraint::Length(2),
         ])
         .split(inner_area);
 
     let title = Paragraph::new(vec![
-        Line::from("ARCADIUM").style(Style::default().add_modifier(Modifier::BOLD)),
+        Line::from("ARCADIUM")
+            .style(Style::default().add_modifier(Modifier::BOLD)),
         Line::from(""),
-        Line::from(""),
+        Line::from("TERMINAL ARCADE SYSTEM"),
     ])
     .alignment(Alignment::Center);
 
     frame.render_widget(title, chunks[1]);
 
-    let status = Paragraph::new("NO GAMES INSTALLED")
-        .alignment(Alignment::Center);
+    let game_lines: Vec<Line> = app
+        .games
+        .iter()
+        .enumerate()
+        .map(|(index, game)| {
+            if index == app.selected_game {
+                Line::from(format!("> {}", game.name))
+                    .style(Style::default().add_modifier(Modifier::BOLD))
+            } else {
+                Line::from(format!("  {}", game.name))
+            }
+        })
+        .collect();
 
-    frame.render_widget(status, chunks[3]);
+    let game_list = Paragraph::new(game_lines)
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" GAME LIBRARY "),
+        );
 
-    let footer = Paragraph::new("[Q] QUIT")
+    frame.render_widget(game_list, chunks[3]);
+
+    let footer = Paragraph::new("[↑ ↓ / O K] SELECT    [ENTER] PLAY    [Q] QUIT")
         .alignment(Alignment::Center);
 
     frame.render_widget(footer, chunks[4]);
