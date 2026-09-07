@@ -1,3 +1,3 @@
-fn main() {
-    arcadium_core::run();
+fn main() -> std::io::Result<()> {
+    arcadium_core::run()
 }
