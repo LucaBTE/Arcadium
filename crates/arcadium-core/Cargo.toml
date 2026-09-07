@@ -1,0 +1,7 @@
+[package]
+name = "arcadium-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arcadium-sdk = { path = "../arcadium-sdk" }
