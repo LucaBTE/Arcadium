@@ -1,22 +1,16 @@
 mod app;
+mod mode;
 mod ui;
 
 use app::App;
 use crossterm::{
     execute,
-    terminal::{
-        disable_raw_mode,
-        enable_raw_mode,
-        EnterAlternateScreen,
-        LeaveAlternateScreen,
-    },
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, stdout};
 
+//called by 'arcadium-cli', defines the basics of the applications
 pub fn run() -> io::Result<()> {
     enable_raw_mode()?;
 
@@ -35,11 +29,11 @@ pub fn run() -> io::Result<()> {
     result
 }
 
-fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
-) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>) -> io::Result<()> {
+    //defines a new mutable app, calling App::new() from 'arcadium-core/app.rs'
     let mut app = App::new();
 
+    //until the app field 'should quit' is false ('true' when pressing 'q' or something else), the app continues to run
     while !app.should_quit {
         terminal.draw(|frame| ui::render(frame, &app))?;
         app.handle_events()?;
