@@ -10,12 +10,19 @@ use crate::{app::App, mode::AppMode};
 
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
+
     frame
         .buffer_mut()
         .set_style(area, Style::default().fg(Color::White));
+
     match app.mode {
-        AppMode::Library => render_library(frame, app),
-        AppMode::Playing => render_game(frame, app),
+        AppMode::Library => {
+            render_library(frame, app);
+        }
+
+        AppMode::Playing => {
+            render_game(frame, app);
+        }
     }
 }
 
@@ -52,15 +59,17 @@ fn render_library(frame: &mut Frame, app: &App) {
     frame.render_widget(title, chunks[1]);
 
     let game_items: Vec<ListItem> = app
-        .games
-        .iter()
+        .games()
         .enumerate()
         .map(|(index, game)| {
+            let metadata = game.metadata();
+
             let label = if index == app.selected_game {
-                format!("> {}", game.name)
+                format!("> {}", metadata.name)
             } else {
-                format!("  {}", game.name)
+                format!("  {}", metadata.name)
             };
+
             ListItem::new(Line::from(label).alignment(Alignment::Center))
         })
         .collect();
@@ -79,11 +88,16 @@ fn render_library(frame: &mut Frame, app: &App) {
         );
 
     let mut list_state =
-        ListState::default().with_selected((!app.games.is_empty()).then_some(app.selected_game));
+        ListState::default().with_selected((app.game_count() > 0).then_some(app.selected_game));
+
     frame.render_stateful_widget(game_list, chunks[3], &mut list_state);
 
-    let footer = Paragraph::new("[↑ ↓ / J K] SELECT    [ENTER] PLAY    [Q] QUIT")
-        .alignment(Alignment::Center);
+    let footer = Paragraph::new(
+        "[↑ ↓ / J K] SELECT    \
+         [ENTER] PLAY    \
+         [Q] QUIT",
+    )
+    .alignment(Alignment::Center);
 
     frame.render_widget(footer, chunks[4]);
 }
@@ -91,11 +105,9 @@ fn render_library(frame: &mut Frame, app: &App) {
 fn render_game(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    if app.games.is_empty() {
+    let Some(game) = app.selected_game_metadata() else {
         return;
-    }
-
-    let game = &app.games[app.selected_game];
+    };
 
     let main_block = Block::default()
         .borders(Borders::ALL)

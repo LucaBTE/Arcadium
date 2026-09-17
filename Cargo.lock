@@ -37,6 +37,8 @@ name = "arcadium-cli"
 version = "0.1.0"
 dependencies = [
  "arcadium-core",
+ "arcadium-game-dummy",
+ "arcadium-game-dummy2",
 ]
 
 [[package]]
@@ -46,6 +48,20 @@ dependencies = [
  "arcadium-sdk",
  "crossterm",
  "ratatui",
+]
+
+[[package]]
+name = "arcadium-game-dummy"
+version = "0.1.0"
+dependencies = [
+ "arcadium-sdk",
+]
+
+[[package]]
+name = "arcadium-game-dummy2"
+version = "0.1.0"
+dependencies = [
+ "arcadium-sdk",
 ]
 
 [[package]]
