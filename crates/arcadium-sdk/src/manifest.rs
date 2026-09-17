@@ -20,6 +20,7 @@ pub struct AdmGameSection {
 #[derive(Debug, Deserialize)]
 pub struct AdmArcadiumSection {
     pub sdk: u32,
+    pub entry: String,
 }
 
 impl AdmManifest {

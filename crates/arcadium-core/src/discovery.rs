@@ -1,8 +1,17 @@
-use std::{fs, io, path::Path};
+use std::{
+    error::Error,
+    fs::{self, File},
+    io::{self, Read},
+    path::{Component, Path},
+};
 
-use arcadium_sdk::AdmManifest;
+use arcadium_sdk::{AdmManifest, SDK_VERSION};
+
+use zip::ZipArchive;
 
 use crate::{installed_game::InstalledGame, registry::GameRegistry};
+
+const MANIFEST_FILE: &str = "manifest.toml";
 
 pub fn discover_games_from_directory(
     directory: &Path,
@@ -24,17 +33,17 @@ pub fn discover_games_from_directory(
             continue;
         };
 
-        if extension != "adm" {
+        if !extension.eq_ignore_ascii_case("adm") {
             continue;
         }
 
-        match load_adm_manifest(&path) {
+        match load_adm_package(&path) {
             Ok(game) => {
                 registry.register(game);
             }
 
             Err(error) => {
-                eprintln!("Failed to load ADM file '{}': {}", path.display(), error);
+                eprintln!("Failed to load ADM package '{}': {}", path.display(), error);
             }
         }
     }
@@ -52,10 +61,18 @@ pub fn discover_games(bundled_directory: &Path, user_directory: &Path) -> io::Re
     Ok(registry)
 }
 
-fn load_adm_manifest(path: &Path) -> Result<InstalledGame, Box<dyn std::error::Error>> {
-    let content = fs::read_to_string(path)?;
+fn load_adm_package(path: &Path) -> Result<InstalledGame, Box<dyn Error>> {
+    let file = File::open(path)?;
 
-    let manifest: AdmManifest = toml::from_str(&content)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    let manifest_content = read_manifest(&mut archive)?;
+
+    let manifest: AdmManifest = toml::from_str(&manifest_content)?;
+
+    validate_manifest(&manifest)?;
+
+    validate_entry_exists(&mut archive, &manifest.arcadium.entry)?;
 
     let metadata = manifest.metadata();
 
@@ -63,5 +80,98 @@ fn load_adm_manifest(path: &Path) -> Result<InstalledGame, Box<dyn std::error::E
         metadata,
         path.to_path_buf(),
         manifest.arcadium.sdk,
+        manifest.arcadium.entry,
     ))
+}
+
+fn read_manifest(archive: &mut ZipArchive<File>) -> Result<String, Box<dyn Error>> {
+    let mut manifest_file = archive
+        .by_name(MANIFEST_FILE)
+        .map_err(|_| invalid_data("ADM package is missing manifest.toml"))?;
+
+    let mut content = String::new();
+
+    manifest_file.read_to_string(&mut content)?;
+
+    Ok(content)
+}
+
+fn validate_manifest(manifest: &AdmManifest) -> Result<(), Box<dyn Error>> {
+    validate_required_field("game.id", &manifest.game.id)?;
+
+    validate_required_field("game.name", &manifest.game.name)?;
+
+    validate_required_field("game.author", &manifest.game.author)?;
+
+    validate_required_field("game.version", &manifest.game.version)?;
+
+    validate_required_field("game.description", &manifest.game.description)?;
+
+    validate_required_field("arcadium.entry", &manifest.arcadium.entry)?;
+
+    if manifest.arcadium.sdk != SDK_VERSION {
+        return Err(invalid_data(format!(
+            "unsupported Arcadium SDK version: package requires {}, \
+                     but this Arcadium build supports {}",
+            manifest.arcadium.sdk, SDK_VERSION
+        ))
+        .into());
+    }
+
+    validate_entry_path(&manifest.arcadium.entry)?;
+
+    Ok(())
+}
+
+fn validate_required_field(field_name: &str, value: &str) -> Result<(), Box<dyn Error>> {
+    if value.trim().is_empty() {
+        return Err(
+            invalid_data(format!("manifest field '{}' cannot be empty", field_name)).into(),
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_entry_path(entry: &str) -> Result<(), Box<dyn Error>> {
+    let path = Path::new(entry);
+
+    if path.is_absolute() {
+        return Err(invalid_data("arcadium.entry must be a relative path").into());
+    }
+
+    for component in path.components() {
+        match component {
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(invalid_data("arcadium.entry contains an invalid path").into());
+            }
+
+            _ => {}
+        }
+    }
+
+    if !entry.ends_with(".wasm") {
+        return Err(invalid_data("arcadium.entry must point to a .wasm file").into());
+    }
+
+    Ok(())
+}
+
+fn validate_entry_exists(
+    archive: &mut ZipArchive<File>,
+    entry: &str,
+) -> Result<(), Box<dyn Error>> {
+    archive.by_name(entry).map_err(|_| {
+        invalid_data(format!(
+            "ADM package declares entry '{}', \
+                     but the file does not exist",
+            entry
+        ))
+    })?;
+
+    Ok(())
+}
+
+fn invalid_data(message: impl Into<String>) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
