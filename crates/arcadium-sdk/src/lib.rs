@@ -1,9 +1,8 @@
-//defines what kind of metadatas a game should have.
-#[derive(Debug, Clone)]
-pub struct GameMetadata {
-    pub id: String,
-    pub name: String,
-    pub author: String,
-    pub version: String,
-    pub description: String,
-}
+mod game;
+mod metadata;
+
+pub use game::ArcadeGame;
+pub use metadata::GameMetadata;
+
+//for other devs:
+//use arcadium_sdk::{ArcadeGame, GameMetadata};

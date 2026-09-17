@@ -1,30 +1,26 @@
-use arcadium_sdk::GameMetadata;
+use arcadium_sdk::{ArcadeGame, GameMetadata};
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::io;
 use std::time::Duration;
 
-use crate::mode::AppMode;
+use crate::{mode::AppMode, registry::GameRegistry};
 
 //app structure, very easy
 pub struct App {
     pub should_quit: bool,
-    pub games: Vec<GameMetadata>,
     pub selected_game: usize,
     pub mode: AppMode,
+    registry: GameRegistry,
 }
 
 impl App {
     //function to initialize a new application boot
-    pub fn new() -> Self {
-        //list of games are selected from below, currently are just a mock
-        let games = games_mock();
-
-        //these are just the properties of the app
+    pub fn new(registry: GameRegistry) -> Self {
         Self {
             should_quit: false,
-            games,
             selected_game: 0,
             mode: AppMode::Library,
+            registry,
         }
     }
 
@@ -44,6 +40,22 @@ impl App {
         Ok(())
     }
 
+    pub fn games(&self) -> impl Iterator<Item = &dyn ArcadeGame> {
+        self.registry.iter()
+    }
+
+    pub fn game_count(&self) -> usize {
+        self.registry.len()
+    }
+
+    pub fn selected_game(&self) -> Option<&dyn ArcadeGame> {
+        self.registry.get(self.selected_game)
+    }
+
+    pub fn selected_game_metadata(&self) -> Option<&GameMetadata> {
+        self.selected_game().map(ArcadeGame::metadata)
+    }
+
     //this is the library mentioned in the function above.
     //simply defines what the app should do at the press of specific keys
     fn handle_library_input(&mut self, key: KeyCode) {
@@ -60,7 +72,7 @@ impl App {
                 self.select_next();
             }
 
-            KeyCode::Enter if !self.games.is_empty() => {
+            KeyCode::Enter if !self.registry.is_empty() => {
                 self.mode = AppMode::Playing;
             }
 
@@ -77,52 +89,25 @@ impl App {
     }
 
     fn select_next(&mut self) {
-        if self.games.is_empty() {
+        if self.registry.is_empty() {
             return;
         }
 
         //when the function is called, the game selected becomes the next one. '% self.games.len()' is used to go back at the beginning of the list if
         //this function is called when the selected game is the last of the list.
-        self.selected_game = (self.selected_game + 1) % self.games.len();
+        self.selected_game = (self.selected_game + 1) % self.registry.len();
     }
 
     //called by pressing 'up' or 'k', the selected game becomes the previous one. It goes at the last element if pressed when the selected item is the first of the list
     fn select_previous(&mut self) {
-        if self.games.is_empty() {
+        if self.registry.is_empty() {
             return;
         }
 
         if self.selected_game == 0 {
-            self.selected_game = self.games.len() - 1;
+            self.selected_game = self.registry.len() - 1;
         } else {
             self.selected_game -= 1;
         }
     }
-}
-
-//vector of mock games to have a reference while building the rest of the application logic.
-fn games_mock() -> Vec<GameMetadata> {
-    vec![
-        GameMetadata {
-            id: String::from("pong"),
-            name: String::from("Pong"),
-            author: String::from("Arcadium"),
-            version: String::from("0.1.0"),
-            description: String::from("Classic two-player paddle game."),
-        },
-        GameMetadata {
-            id: String::from("snake"),
-            name: String::from("Snake"),
-            author: String::from("Arcadium"),
-            version: String::from("0.1.0"),
-            description: String::from("Classic terminal snake."),
-        },
-        GameMetadata {
-            id: String::from("tic-tac-toe"),
-            name: String::from("Tic Tac Toe"),
-            author: String::from("Arcadium"),
-            version: String::from("0.1.0"),
-            description: String::from("Classic three-in-a-row game."),
-        },
-    ]
 }
