@@ -8,3 +8,4 @@ arcadium-sdk = { path = "../arcadium-sdk" }
 crossterm = "0.29"
 ratatui = "0.30.2"
 toml = "0.9"
+zip = "8.6.0"
