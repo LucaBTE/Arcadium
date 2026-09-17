@@ -62,7 +62,7 @@ fn render_library(frame: &mut Frame, app: &App) {
         .games()
         .enumerate()
         .map(|(index, game)| {
-            let metadata = game.metadata();
+            let metadata = &game.metadata;
 
             let label = if index == app.selected_game {
                 format!("> {}", metadata.name)
@@ -105,9 +105,11 @@ fn render_library(frame: &mut Frame, app: &App) {
 fn render_game(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
-    let Some(game) = app.selected_game_metadata() else {
+    let Some(installed_game) = app.selected_game() else {
         return;
     };
+
+    let game = &installed_game.metadata;
 
     let main_block = Block::default()
         .borders(Borders::ALL)
