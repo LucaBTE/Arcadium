@@ -5,5 +5,3 @@ edition = "2024"
 
 [dependencies]
 arcadium-core = { path = "../arcadium-core" }
-arcadium-game-dummy = { path = "../../games/dummy" }
-arcadium-game-dummy2 = { path = "../../games/dummy2" }

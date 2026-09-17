@@ -1,0 +1,9 @@
+[game]
+id = "com.arcadium.tictactoe"
+name = "Tic Tac Toe"
+author = "Arcadium"
+version = "0.1.0"
+description = "Classic three-in-a-row game."
+
+[arcadium]
+sdk = 1

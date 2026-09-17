@@ -1,0 +1,9 @@
+[game]
+id = "com.arcadium.pong"
+name = "Pong"
+author = "Arcadium"
+version = "0.1.0"
+description = "Classic two-player paddle game."
+
+[arcadium]
+sdk = 1

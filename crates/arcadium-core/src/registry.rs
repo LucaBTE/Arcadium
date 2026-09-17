@@ -1,11 +1,7 @@
-use arcadium_sdk::ArcadeGame;
+use crate::installed_game::InstalledGame;
 
-//registry can contain every "concrete" type if it implements ArcadeGame
-//registry.register(NewBeautifulGame::new());
-//registry.register(InsaneGame::new());
-//registry.register(TicTacToes::new());
 pub struct GameRegistry {
-    games: Vec<Box<dyn ArcadeGame>>,
+    games: Vec<InstalledGame>,
 }
 
 impl GameRegistry {
@@ -13,19 +9,16 @@ impl GameRegistry {
         Self { games: Vec::new() }
     }
 
-    pub fn register<G>(&mut self, game: G)
-    where
-        G: ArcadeGame + 'static,
-    {
-        self.games.push(Box::new(game));
+    pub fn register(&mut self, game: InstalledGame) {
+        self.games.push(game);
     }
 
-    pub fn get(&self, index: usize) -> Option<&dyn ArcadeGame> {
-        self.games.get(index).map(Box::as_ref)
+    pub fn get(&self, index: usize) -> Option<&InstalledGame> {
+        self.games.get(index)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &dyn ArcadeGame> {
-        self.games.iter().map(Box::as_ref)
+    pub fn iter(&self) -> impl Iterator<Item = &InstalledGame> {
+        self.games.iter()
     }
 
     pub fn len(&self) -> usize {

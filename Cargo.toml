@@ -5,6 +5,4 @@ members = [
     "crates/arcadium-cli",
     "crates/arcadium-core",
     "crates/arcadium-sdk",
-    "games/dummy",
-    "games/dummy2",
 ]

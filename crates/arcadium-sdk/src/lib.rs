@@ -1,8 +1,7 @@
 mod game;
+mod manifest;
 mod metadata;
 
 pub use game::ArcadeGame;
+pub use manifest::{AdmArcadiumSection, AdmGameSection, AdmManifest};
 pub use metadata::GameMetadata;
-
-//for other devs:
-//use arcadium_sdk::{ArcadeGame, GameMetadata};
