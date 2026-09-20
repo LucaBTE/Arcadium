@@ -125,11 +125,16 @@ fn render_game(frame: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(30),
-            Constraint::Length(8),
+            Constraint::Percentage(25),
+            Constraint::Length(10),
             Constraint::Min(0),
         ])
         .split(inner_area);
+
+    let runtime_message = app
+        .runtime_message
+        .as_deref()
+        .unwrap_or("Runtime not started");
 
     let content = Paragraph::new(vec![
         Line::from(game.name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
@@ -138,8 +143,9 @@ fn render_game(frame: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(format!("Author: {}", game.author)),
         Line::from(format!("Version: {}", game.version)),
+        Line::from(format!("SDK: {}", installed_game.sdk_version)),
         Line::from(""),
-        Line::from("GAME NOT IMPLEMENTED"),
+        Line::from(runtime_message),
     ])
     .alignment(Alignment::Center);
 

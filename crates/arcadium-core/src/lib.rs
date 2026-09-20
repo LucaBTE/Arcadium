@@ -3,6 +3,7 @@ mod discovery;
 mod installed_game;
 mod mode;
 mod registry;
+mod runtime;
 mod ui;
 
 pub use discovery::{discover_games, discover_games_from_directory};

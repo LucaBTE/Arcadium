@@ -2,12 +2,15 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 
 use std::{io, time::Duration};
 
-use crate::{installed_game::InstalledGame, mode::AppMode, registry::GameRegistry};
+use crate::{
+    installed_game::InstalledGame, mode::AppMode, registry::GameRegistry, runtime::initialize_game,
+};
 
 pub struct App {
     pub should_quit: bool,
     pub selected_game: usize,
     pub mode: AppMode,
+    pub runtime_message: Option<String>,
 
     registry: GameRegistry,
 }
@@ -18,6 +21,7 @@ impl App {
             should_quit: false,
             selected_game: 0,
             mode: AppMode::Library,
+            runtime_message: None,
             registry,
         }
     }
@@ -68,7 +72,7 @@ impl App {
             }
 
             KeyCode::Enter if !self.registry.is_empty() => {
-                self.mode = AppMode::Playing;
+                self.launch_selected_game();
             }
 
             _ => {}
@@ -78,7 +82,31 @@ impl App {
     fn handle_game_input(&mut self, key: KeyCode) {
         if key == KeyCode::Esc {
             self.mode = AppMode::Library;
+
+            self.runtime_message = None;
         }
+    }
+
+    fn launch_selected_game(&mut self) {
+        let result = {
+            let Some(game) = self.registry.get(self.selected_game) else {
+                return;
+            };
+
+            initialize_game(game)
+        };
+
+        self.runtime_message = Some(match result {
+            Ok(code) => {
+                format!("arcadium_init() returned {}", code)
+            }
+
+            Err(error) => {
+                format!("Failed to initialize game: {}", error)
+            }
+        });
+
+        self.mode = AppMode::Playing;
     }
 
     fn select_next(&mut self) {
