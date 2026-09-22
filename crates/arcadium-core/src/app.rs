@@ -3,7 +3,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::{io, time::Duration};
 
 use crate::{
-    installed_game::InstalledGame, mode::AppMode, registry::GameRegistry, runtime::initialize_game,
+    installed_game::InstalledGame, mode::AppMode, registry::GameRegistry, runtime::GameRuntime,
 };
 
 pub struct App {
@@ -13,6 +13,7 @@ pub struct App {
     pub runtime_message: Option<String>,
 
     registry: GameRegistry,
+    runtime: Option<GameRuntime>,
 }
 
 impl App {
@@ -23,6 +24,7 @@ impl App {
             mode: AppMode::Library,
             runtime_message: None,
             registry,
+            runtime: None,
         }
     }
 
@@ -43,6 +45,24 @@ impl App {
         }
 
         Ok(())
+    }
+
+    pub fn update(&mut self) {
+        if self.mode != AppMode::Playing {
+            return;
+        }
+
+        let update_result = match self.runtime.as_mut() {
+            Some(runtime) => Some(runtime.update()),
+
+            None => None,
+        };
+
+        if let Some(Err(error)) = update_result {
+            self.runtime_message = Some(format!("Game runtime error: {}", error));
+
+            self.runtime = None;
+        }
     }
 
     pub fn games(&self) -> impl Iterator<Item = &InstalledGame> {
@@ -81,6 +101,8 @@ impl App {
 
     fn handle_game_input(&mut self, key: KeyCode) {
         if key == KeyCode::Esc {
+            self.stop_game();
+
             self.mode = AppMode::Library;
 
             self.runtime_message = None;
@@ -88,25 +110,53 @@ impl App {
     }
 
     fn launch_selected_game(&mut self) {
-        let result = {
+        let runtime_result = {
             let Some(game) = self.registry.get(self.selected_game) else {
                 return;
             };
 
-            initialize_game(game)
+            GameRuntime::load(game)
         };
 
-        self.runtime_message = Some(match result {
+        let mut runtime = match runtime_result {
+            Ok(runtime) => runtime,
+
+            Err(error) => {
+                self.runtime_message = Some(format!("Failed to load game: {}", error));
+
+                self.mode = AppMode::Playing;
+
+                return;
+            }
+        };
+
+        match runtime.init() {
+            Ok(0) => {
+                self.runtime_message = Some("Game initialization failed".to_string());
+            }
+
             Ok(code) => {
-                format!("arcadium_init() returned {}", code)
+                self.runtime_message = Some(format!("Game initialized successfully ({})", code));
+
+                self.runtime = Some(runtime);
             }
 
             Err(error) => {
-                format!("Failed to initialize game: {}", error)
+                self.runtime_message = Some(format!("Failed to initialize game: {}", error));
             }
-        });
+        }
 
         self.mode = AppMode::Playing;
+    }
+
+    fn stop_game(&mut self) {
+        let Some(mut runtime) = self.runtime.take() else {
+            return;
+        };
+
+        if let Err(error) = runtime.shutdown() {
+            eprintln!("Failed to shut down game runtime: {}", error);
+        }
     }
 
     fn select_next(&mut self) {

@@ -51,6 +51,8 @@ fn run_app(
     let mut app = App::new(registry);
 
     while !app.should_quit {
+        app.update();
+
         terminal.draw(|frame| ui::render(frame, &app))?;
 
         app.handle_events()?;

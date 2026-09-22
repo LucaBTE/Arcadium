@@ -4,37 +4,96 @@ use std::{
     io::{self, Read},
 };
 
-use wasmtime::{Engine, Instance, Module, Store};
+use wasmtime::{Engine, Instance, Module, Store, TypedFunc};
 
 use zip::ZipArchive;
 
 use crate::installed_game::InstalledGame;
 
 const INIT_EXPORT: &str = "arcadium_init";
+const UPDATE_EXPORT: &str = "arcadium_update";
+const SHUTDOWN_EXPORT: &str = "arcadium_shutdown";
 
-pub fn initialize_game(game: &InstalledGame) -> Result<i32, Box<dyn Error>> {
-    let wasm_bytes = read_wasm_from_package(game)?;
+pub struct GameRuntime {
+    store: Store<()>,
 
-    let engine = Engine::default();
+    init: TypedFunc<(), i32>,
+    update: TypedFunc<(), ()>,
+    shutdown: TypedFunc<(), ()>,
+}
 
-    let module = Module::from_binary(&engine, &wasm_bytes)?;
+impl GameRuntime {
+    pub fn load(game: &InstalledGame) -> Result<Self, Box<dyn Error>> {
+        let wasm_bytes = read_wasm_from_package(game)?;
 
-    let mut store = Store::new(&engine, ());
+        let engine = Engine::default();
 
-    let instance = Instance::new(&mut store, &module, &[])?;
+        let module = Module::from_binary(&engine, &wasm_bytes)?;
 
-    let init = instance
-        .get_typed_func::<(), i32>(&mut store, INIT_EXPORT)
+        let mut store = Store::new(&engine, ());
+
+        let instance = Instance::new(&mut store, &module, &[])?;
+
+        let init = get_init_function(&instance, &mut store)?;
+
+        let update = get_void_function(&instance, &mut store, UPDATE_EXPORT)?;
+
+        let shutdown = get_void_function(&instance, &mut store, SHUTDOWN_EXPORT)?;
+
+        Ok(Self {
+            store,
+            init,
+            update,
+            shutdown,
+        })
+    }
+
+    pub fn init(&mut self) -> Result<i32, Box<dyn Error>> {
+        let result = self.init.call(&mut self.store, ())?;
+
+        Ok(result)
+    }
+
+    pub fn update(&mut self) -> Result<(), Box<dyn Error>> {
+        self.update.call(&mut self.store, ())?;
+
+        Ok(())
+    }
+
+    pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
+        self.shutdown.call(&mut self.store, ())?;
+
+        Ok(())
+    }
+}
+
+fn get_init_function(
+    instance: &Instance,
+    store: &mut Store<()>,
+) -> Result<TypedFunc<(), i32>, Box<dyn Error>> {
+    instance
+        .get_typed_func::<(), i32>(store, INIT_EXPORT)
         .map_err(|_| {
             invalid_data(format!(
                 "WASM module does not export required function '{}'",
                 INIT_EXPORT
             ))
-        })?;
+            .into()
+        })
+}
 
-    let result = init.call(&mut store, ())?;
-
-    Ok(result)
+fn get_void_function(
+    instance: &Instance,
+    store: &mut Store<()>,
+    name: &str,
+) -> Result<TypedFunc<(), ()>, Box<dyn Error>> {
+    instance.get_typed_func::<(), ()>(store, name).map_err(|_| {
+        invalid_data(format!(
+            "WASM module does not export required function '{}'",
+            name
+        ))
+        .into()
+    })
 }
 
 fn read_wasm_from_package(game: &InstalledGame) -> Result<Vec<u8>, Box<dyn Error>> {
