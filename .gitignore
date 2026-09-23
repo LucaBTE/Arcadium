@@ -1,2 +1,7 @@
 /target
-/adm-build
+/adm-build/*
+!/adm-build/test_game/
+/adm-build/test_game/*
+!/adm-build/test_game/test_game.rs
+!/adm-build/test_game/manifest.toml
+!/adm-build/test_game/build.sh

@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::Line,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
@@ -117,41 +117,67 @@ fn render_game(frame: &mut Frame, app: &App) {
 
     frame.render_widget(main_block, area);
 
-    let inner_area = area.inner(ratatui::layout::Margin {
-        horizontal: 2,
-        vertical: 1,
-    });
+    let surface = game_surface(area);
+    if let Some(screen) = app.screen() {
+        for y in 0..surface.height.min(screen.height()) {
+            for x in 0..surface.width.min(screen.width()) {
+                let character =
+                    screen.screen()[usize::from(y) * usize::from(screen.width()) + usize::from(x)];
+                frame.buffer_mut()[(surface.x + x, surface.y + y)].set_char(character);
+            }
+        }
+    } else {
+        frame.render_widget(
+            Paragraph::new(
+                app.runtime_message
+                    .as_deref()
+                    .unwrap_or("Runtime not started"),
+            )
+            .alignment(Alignment::Center),
+            surface,
+        );
+    }
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    let footer = Rect::new(
+        inner.x,
+        inner.y + surface.height,
+        inner.width,
+        inner.height.min(1),
+    );
+    frame.render_widget(
+        Paragraph::new("[ESC] BACK").alignment(Alignment::Center),
+        footer,
+    );
+}
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage(25),
-            Constraint::Length(10),
-            Constraint::Min(0),
-        ])
-        .split(inner_area);
+/// The border and one footer row are reserved by Arcadium.
+pub(crate) fn game_surface(area: Rect) -> Rect {
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(1),
+    )
+}
 
-    let runtime_message = app
-        .runtime_message
-        .as_deref()
-        .unwrap_or("Runtime not started");
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let content = Paragraph::new(vec![
-        Line::from(game.name.clone()).style(Style::default().add_modifier(Modifier::BOLD)),
-        Line::from(""),
-        Line::from(game.description.clone()),
-        Line::from(""),
-        Line::from(format!("Author: {}", game.author)),
-        Line::from(format!("Version: {}", game.version)),
-        Line::from(format!("SDK: {}", installed_game.sdk_version)),
-        Line::from(""),
-        Line::from(runtime_message),
-    ])
-    .alignment(Alignment::Center);
-
-    frame.render_widget(content, chunks[1]);
-
-    let footer = Paragraph::new("[ESC] BACK").alignment(Alignment::Center);
-
-    frame.render_widget(footer, chunks[2]);
+    #[test]
+    fn surface_reserves_border_and_footer_even_on_tiny_terminals() {
+        assert_eq!(
+            game_surface(Rect::new(0, 0, 80, 24)),
+            Rect::new(1, 1, 78, 21)
+        );
+        for width in 0..4 {
+            for height in 0..4 {
+                let area = Rect::new(0, 0, width, height);
+                let surface = game_surface(area);
+                assert!(surface.right() <= area.right());
+                assert!(surface.bottom() <= area.bottom());
+            }
+        }
+    }
 }
