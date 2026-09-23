@@ -3,7 +3,11 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use std::{io, time::Duration};
 
 use crate::{
-    installed_game::InstalledGame, mode::AppMode, registry::GameRegistry, runtime::GameRuntime,
+    host::{HostState, key},
+    installed_game::InstalledGame,
+    mode::AppMode,
+    registry::GameRegistry,
+    runtime::GameRuntime,
 };
 
 pub struct App {
@@ -28,41 +32,51 @@ impl App {
         }
     }
 
-    pub fn handle_events(&mut self) -> io::Result<()> {
-        if event::poll(Duration::from_millis(100))?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            match self.mode {
-                AppMode::Library => {
-                    self.handle_library_input(key.code);
-                }
+    pub fn handle_events(&mut self, width: u16, height: u16) -> io::Result<()> {
+        while event::poll(Duration::ZERO)? {
+            if let Event::Key(key) = event::read()?
+                && matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+            {
+                match self.mode {
+                    AppMode::Library => {
+                        self.handle_library_input(key.code, width, height);
+                    }
 
-                AppMode::Playing => {
-                    self.handle_game_input(key.code);
+                    AppMode::Playing => {
+                        self.handle_game_input(key.code);
+                    }
                 }
             }
         }
-
         Ok(())
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, delta_seconds: f32) {
         if self.mode != AppMode::Playing {
             return;
         }
 
-        let update_result = match self.runtime.as_mut() {
-            Some(runtime) => Some(runtime.update()),
-
-            None => None,
-        };
+        let update_result = self
+            .runtime
+            .as_mut()
+            .map(|runtime| runtime.update(delta_seconds));
 
         if let Some(Err(error)) = update_result {
             self.runtime_message = Some(format!("Game runtime error: {}", error));
 
-            self.runtime = None;
+            self.stop_game();
         }
+    }
+
+    pub fn begin_frame(&mut self, width: u16, height: u16) {
+        if let Some(runtime) = self.runtime.as_mut() {
+            runtime.begin_frame();
+            runtime.resize(width, height);
+        }
+    }
+
+    pub fn screen(&self) -> Option<&HostState> {
+        self.runtime.as_ref().map(GameRuntime::screen)
     }
 
     pub fn games(&self) -> impl Iterator<Item = &InstalledGame> {
@@ -77,7 +91,7 @@ impl App {
         self.registry.get(self.selected_game)
     }
 
-    fn handle_library_input(&mut self, key: KeyCode) {
+    fn handle_library_input(&mut self, key: KeyCode, width: u16, height: u16) {
         match key {
             KeyCode::Char('q') => {
                 self.should_quit = true;
@@ -92,7 +106,7 @@ impl App {
             }
 
             KeyCode::Enter if !self.registry.is_empty() => {
-                self.launch_selected_game();
+                self.launch_selected_game(width, height);
             }
 
             _ => {}
@@ -106,10 +120,14 @@ impl App {
             self.mode = AppMode::Library;
 
             self.runtime_message = None;
+        } else if let Some(key) = host_key(key)
+            && let Some(runtime) = self.runtime.as_mut()
+        {
+            runtime.press_key(key);
         }
     }
 
-    fn launch_selected_game(&mut self) {
+    fn launch_selected_game(&mut self, width: u16, height: u16) {
         let runtime_result = {
             let Some(game) = self.registry.get(self.selected_game) else {
                 return;
@@ -130,13 +148,15 @@ impl App {
             }
         };
 
+        runtime.resize(width, height);
+
         match runtime.init() {
             Ok(0) => {
                 self.runtime_message = Some("Game initialization failed".to_string());
             }
 
-            Ok(code) => {
-                self.runtime_message = Some(format!("Game initialized successfully ({})", code));
+            Ok(_) => {
+                self.runtime_message = None;
 
                 self.runtime = Some(runtime);
             }
@@ -177,5 +197,27 @@ impl App {
         } else {
             self.selected_game -= 1;
         }
+    }
+}
+
+fn host_key(code: KeyCode) -> Option<i32> {
+    Some(match code {
+        KeyCode::Up => key::UP,
+        KeyCode::Down => key::DOWN,
+        KeyCode::Left => key::LEFT,
+        KeyCode::Right => key::RIGHT,
+        KeyCode::Char('w' | 'W') => key::W,
+        KeyCode::Char('a' | 'A') => key::A,
+        KeyCode::Char('s' | 'S') => key::S,
+        KeyCode::Char('d' | 'D') => key::D,
+        KeyCode::Char(' ') => key::SPACE,
+        KeyCode::Enter => key::ENTER,
+        _ => return None,
+    })
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.stop_game();
     }
 }
