@@ -15,6 +15,49 @@ const ACCENT: Color = Color::Rgb(103, 232, 249);
 const TEXT: Color = Color::Rgb(241, 245, 249);
 const MUTED: Color = Color::Rgb(148, 163, 184);
 const BORDER: Color = Color::Rgb(41, 58, 85);
+const PINK: Color = Color::Rgb(240, 171, 252);
+
+// Five-row letterforms for the ARCADIUM wordmark.
+const WORDMARK: [[u8; 5]; 8] = [
+    [14, 17, 31, 17, 17],
+    [30, 17, 30, 18, 17],
+    [15, 16, 16, 16, 15],
+    [14, 17, 31, 17, 17],
+    [30, 17, 17, 17, 30],
+    [31, 4, 4, 4, 31],
+    [17, 17, 17, 17, 14],
+    [17, 27, 21, 17, 17],
+];
+const WORDMARK_WIDTH: u16 = 54;
+
+fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
+    if !large {
+        frame.render_widget(
+            Paragraph::new("A R C A D I U M")
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+            area,
+        );
+        return;
+    }
+    let start = area.x + (area.width - WORDMARK_WIDTH) / 2;
+    for (letter, rows) in WORDMARK.iter().enumerate() {
+        let color = Color::Rgb(
+            103 + (137 * letter / 7) as u8,
+            232 - (61 * letter / 7) as u8,
+            249 + (3 * letter / 7) as u8,
+        );
+        for (row, bits) in rows.iter().enumerate() {
+            for column in 0..5 {
+                if bits & (1 << (4 - column)) != 0 {
+                    frame.buffer_mut()[(start + letter as u16 * 7 + column, area.y + row as u16)]
+                        .set_char('█')
+                        .set_fg(color);
+                }
+            }
+        }
+    }
+}
 
 pub fn render(frame: &mut Frame, app: &App) {
     let area = frame.area();
@@ -44,29 +87,39 @@ fn shortcuts<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
 
 fn render_library(frame: &mut Frame, app: &App) {
     let area = frame.area();
-    let width = area.width.saturating_sub(4).min(64);
+    let width = area.width.saturating_sub(4).min(72);
+    let large_wordmark = width >= WORDMARK_WIDTH && area.height >= 22;
+    let header_height = if large_wordmark { 6 } else { 2 };
     let row_height = if area.height >= 18 { 3 } else { 1 };
     let show_description = area.height >= 16 && width >= 36 && app.game_count() > 0;
     let details_height = if show_description { 3 } else { 0 };
-    let available = area.height.saturating_sub(6 + details_height);
+    let available = area
+        .height
+        .saturating_sub(header_height + 4 + details_height);
     let list_height = (app.game_count().max(1).min(u16::MAX as usize) as u16)
         .saturating_mul(row_height)
         .saturating_add(2)
         .min(available);
-    let height = (list_height + 4 + details_height).min(area.height);
+    let height = (header_height + list_height + 2 + details_height).min(area.height);
     let content = Rect::new(
         area.x + (area.width - width) / 2,
         area.y + (area.height - height) / 2,
         width,
         height,
     );
-    frame.render_widget(
-        Paragraph::new("ARCADIUM").style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
-        Rect::new(content.x, content.y, content.width, content.height.min(1)),
+    render_wordmark(
+        frame,
+        Rect::new(
+            content.x,
+            content.y,
+            width,
+            content.height.min(header_height),
+        ),
+        large_wordmark,
     );
     let list_area = Rect::new(
         content.x,
-        content.y + content.height.min(2),
+        content.y + content.height.min(header_height),
         width,
         list_height,
     );
@@ -88,25 +141,27 @@ fn render_library(frame: &mut Frame, app: &App) {
             .games()
             .enumerate()
             .map(|(index, game)| {
-                let marker = if index == app.selected_game {
-                    "›"
-                } else {
-                    " "
-                };
-                let name = Line::from(format!(" {marker} {}", game.metadata.name));
+                let selected = index == app.selected_game;
+                let rail = if selected { "▌" } else { " " };
+                let marker = if selected { "›" } else { " " };
+                let name = Line::from(vec![
+                    Span::styled(rail, Style::default().fg(PINK)),
+                    Span::styled(
+                        format!(" {marker} {}", game.metadata.name),
+                        Style::default().fg(if selected { ACCENT } else { TEXT }),
+                    ),
+                ]);
                 if row_height == 3 {
-                    ListItem::new(vec![Line::default(), name, Line::default()])
+                    let edge = Line::from(Span::styled(rail, Style::default().fg(PINK)));
+                    ListItem::new(vec![edge.clone(), name, edge])
                 } else {
                     ListItem::new(name)
                 }
             })
             .collect();
-        let list = List::new(items).block(block).highlight_style(
-            Style::default()
-                .fg(ACCENT)
-                .bg(SELECTED)
-                .add_modifier(Modifier::BOLD),
-        );
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(Style::default().bg(SELECTED).add_modifier(Modifier::BOLD));
         let mut state = ListState::default().with_selected(Some(app.selected_game));
         frame.render_stateful_widget(list, list_area, &mut state);
     }
@@ -117,7 +172,7 @@ fn render_library(frame: &mut Frame, app: &App) {
                 .wrap(Wrap { trim: true }),
             Rect::new(
                 content.x + 1,
-                list_area.bottom(),
+                list_area.bottom() + 1,
                 width.saturating_sub(2),
                 2,
             ),
@@ -146,7 +201,7 @@ fn render_game(frame: &mut Frame, app: &App) {
     let Some(installed_game) = app.selected_game() else {
         return;
     };
-    let block = Block::default()
+    let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(BORDER))
@@ -154,6 +209,13 @@ fn render_game(frame: &mut Frame, app: &App) {
             Line::from(format!(" {} ", installed_game.metadata.name))
                 .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
         );
+    if area.width >= 48 {
+        block = block.title(
+            Line::from(" ARCADIUM ")
+                .style(Style::default().fg(MUTED))
+                .right_aligned(),
+        );
+    }
     frame.render_widget(block, area);
     let surface = game_surface(area);
     if let Some(screen) = app.screen() {
@@ -261,7 +323,15 @@ mod tests {
     fn library_scrolls_to_selection_and_handles_empty_and_tiny_screens() {
         let mut library = app(50);
         library.selected_game = 49;
-        for (width, height) in [(80, 24), (40, 12), (26, 10)] {
+        for (width, height) in [
+            (120, 40),
+            (80, 24),
+            (58, 22),
+            (57, 22),
+            (80, 21),
+            (40, 12),
+            (26, 10),
+        ] {
             let text = draw(&library, width, height);
             assert!(text.contains("Game 49"));
             assert!(text.contains("Play"));
