@@ -5,3 +5,5 @@
 !/adm-build/test_game/test_game.rs
 !/adm-build/test_game/manifest.toml
 !/adm-build/test_game/build.sh
+
+/games/pong/target

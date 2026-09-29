@@ -121,9 +121,12 @@ fn render_game(frame: &mut Frame, app: &App) {
     if let Some(screen) = app.screen() {
         for y in 0..surface.height.min(screen.height()) {
             for x in 0..surface.width.min(screen.width()) {
-                let character =
+                let cell =
                     screen.screen()[usize::from(y) * usize::from(screen.width()) + usize::from(x)];
-                frame.buffer_mut()[(surface.x + x, surface.y + y)].set_char(character);
+                frame.buffer_mut()[(surface.x + x, surface.y + y)]
+                    .set_char(cell.character)
+                    .set_fg(cell.foreground)
+                    .set_bg(cell.background);
             }
         }
     } else {

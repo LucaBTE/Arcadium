@@ -55,6 +55,20 @@ impl GameRuntime {
         )?;
         linker.func_wrap(
             "arcadium",
+            "draw_cell",
+            |mut caller: Caller<'_, HostState>,
+             x: i32,
+             y: i32,
+             character: i32,
+             foreground: i32,
+             background: i32| {
+                caller
+                    .data_mut()
+                    .draw_cell(x, y, character, foreground, background);
+            },
+        )?;
+        linker.func_wrap(
+            "arcadium",
             "key_pressed",
             |caller: Caller<'_, HostState>, key: i32| i32::from(caller.data().key_pressed(key)),
         )?;
@@ -178,17 +192,45 @@ mod tests {
         game.begin_frame();
         game.press_key(key::LEFT);
         game.update(0.25)?;
-        assert_eq!(game.screen().screen()[34], '@');
+        assert_eq!(game.screen().screen()[34].character, '@');
         game.begin_frame();
         game.update(0.25)?;
-        assert_eq!(game.screen().screen()[34], '@');
+        assert_eq!(game.screen().screen()[34].character, '@');
         game.resize(12, 8);
         game.begin_frame();
         game.press_key(key::RIGHT);
         game.update(0.25)?;
-        assert_eq!(game.screen().screen()[53], '@');
+        assert_eq!(game.screen().screen()[53].character, '@');
         game.shutdown()?;
-        assert_eq!(game.screen().screen()[0], 'X');
+        assert_eq!(game.screen().screen()[0].character, 'X');
+        Ok(())
+    }
+
+    #[test]
+    fn colored_import_reaches_framebuffer() -> Result<(), Box<dyn Error>> {
+        let mut game = runtime(
+            r#"(module
+            (import "arcadium" "draw_cell" (func $draw (param i32 i32 i32 i32 i32)))
+            (func (export "arcadium_init") (result i32) i32.const 1)
+            (func (export "arcadium_update") (param f32)
+                (call $draw (i32.const 1) (i32.const 0) (i32.const 9608)
+                    (i32.const 0x22d3ee) (i32.const 0x0b1020)))
+            (func (export "arcadium_shutdown")))"#,
+        )?;
+        game.resize(2, 1);
+        game.init()?;
+        game.begin_frame();
+        game.update(0.016)?;
+        let cell = game.screen().screen()[1];
+        assert_eq!(cell.character, '█');
+        assert_eq!(
+            cell.foreground,
+            ratatui::style::Color::Rgb(0x22, 0xd3, 0xee)
+        );
+        assert_eq!(
+            cell.background,
+            ratatui::style::Color::Rgb(0x0b, 0x10, 0x20)
+        );
         Ok(())
     }
 
