@@ -1,4 +1,4 @@
-use crate::{Game, PADDLE_HEIGHT, PADDLE_INSET, PLAY_TOP};
+use crate::{BALL_RADIUS_X, BALL_WIDTH, Game, PADDLE_HEIGHT, PADDLE_INSET, PLAY_TOP};
 
 const BACKGROUND: i32 = 0x0b1020;
 const PANEL: i32 = 0x121c32;
@@ -209,13 +209,15 @@ pub(super) fn render(game: &Game, width: i32, height: i32) {
             BACKGROUND,
         );
     }
-    cell(
-        game.ball_x.round() as i32,
-        game.ball_y.round() as i32,
-        '●',
-        WHITE,
-        BACKGROUND,
-    );
+    for offset in 0..BALL_WIDTH {
+        cell(
+            (game.ball_x - BALL_RADIUS_X).round() as i32 + offset,
+            game.ball_y.round() as i32,
+            '█',
+            WHITE,
+            BACKGROUND,
+        );
+    }
 }
 
 pub(super) fn render_small(width: i32, height: i32) {

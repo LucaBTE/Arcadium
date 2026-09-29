@@ -89,6 +89,13 @@ in one-player mode, the computer controls it with a limited tracking speed.
 ESC returns to the library; launch Pong again to choose another mode.
 Each human paddle moves two rows per input frame with a press/repeat event,
 clamped to the playfield; holding a key follows the terminal's key repeat.
+The ball crosses the court in about 2.6 seconds at serve speed, regardless of
+terminal size. Every two paddle hits add 10% of the base speed, up to 2×;
+a point resets the rally speed. Wall bounces do not count as hits. The computer's
+movement also scales with court height. Each point you score increases computer
+movement speed by 15% of its initial speed, capped at 3×; a new match resets it.
+The ball is a bright two-column block, with matching collision width.
+Human paddles keep their two-row steps.
 The ball serves toward the player who conceded. Gameplay stops below a 24×10
 framebuffer and resumes when space is available; scores survive resizing.
 
