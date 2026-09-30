@@ -1,0 +1,16 @@
+[package]
+name = "tictactoe"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

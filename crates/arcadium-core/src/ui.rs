@@ -42,17 +42,13 @@ fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
     }
     let start = area.x + (area.width - WORDMARK_WIDTH) / 2;
     for (letter, rows) in WORDMARK.iter().enumerate() {
-        let color = Color::Rgb(
-            103 + (137 * letter / 7) as u8,
-            232 - (61 * letter / 7) as u8,
-            249 + (3 * letter / 7) as u8,
-        );
         for (row, bits) in rows.iter().enumerate() {
             for column in 0..5 {
                 if bits & (1 << (4 - column)) != 0 {
                     frame.buffer_mut()[(start + letter as u16 * 7 + column, area.y + row as u16)]
                         .set_char('█')
-                        .set_fg(color);
+                        .set_fg(ACCENT)
+                        .set_style(Style::default().add_modifier(Modifier::BOLD));
                 }
             }
         }
@@ -161,7 +157,7 @@ fn render_library(frame: &mut Frame, app: &App) {
             .collect();
         let list = List::new(items)
             .block(block)
-            .highlight_style(Style::default().bg(SELECTED).add_modifier(Modifier::BOLD));
+            .highlight_style(Style::default().bg(SELECTED));
         let mut state = ListState::default().with_selected(Some(app.selected_game));
         frame.render_stateful_widget(list, list_area, &mut state);
     }
@@ -207,12 +203,12 @@ fn render_game(frame: &mut Frame, app: &App) {
         .border_style(Style::default().fg(BORDER))
         .title(
             Line::from(format!(" {} ", installed_game.metadata.name))
-                .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD)),
+                .style(Style::default().fg(ACCENT)),
         );
     if area.width >= 48 {
         block = block.title(
             Line::from(" ARCADIUM ")
-                .style(Style::default().fg(MUTED))
+                .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD))
                 .right_aligned(),
         );
     }
@@ -245,8 +241,7 @@ fn render_game(frame: &mut Frame, app: &App) {
         );
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from("Game unavailable")
-                    .style(Style::default().fg(TEXT).add_modifier(Modifier::BOLD)),
+                Line::from("Game unavailable").style(Style::default().fg(TEXT)),
                 Line::default(),
                 Line::from(reason).style(Style::default().fg(MUTED)),
             ])

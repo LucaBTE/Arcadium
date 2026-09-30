@@ -82,10 +82,10 @@ cargo run -p arcadium-cli
 
 The script builds `games/pong/target/wasm32-unknown-unknown/release/pong.wasm`
 and replaces `bundled-games/pong.adm` with a ZIP containing `manifest.toml` and
-`game.wasm`. Select **Pong** and press ENTER. Choose **One player** (against the
-computer) or **Two players** with W/S or UP/DOWN, then press ENTER to start.
-W/S move the left paddle. In two-player mode, UP/DOWN move the right paddle;
-in one-player mode, the computer controls it with a limited tracking speed.
+`game.wasm`. Select **Pong** and press ENTER. Choose **1P** (against the
+computer) or **2P** with LEFT/RIGHT or A/D, then press ENTER to start.
+In 1P, UP/DOWN move your left paddle and the computer controls the right paddle.
+In 2P, W/S move player one's left paddle and UP/DOWN move player two's right paddle.
 ESC returns to the library; launch Pong again to choose another mode.
 Each human paddle moves two rows per input frame with a press/repeat event,
 clamped to the playfield; holding a key follows the terminal's key repeat.
@@ -111,3 +111,39 @@ cargo test --manifest-path games/pong/Cargo.toml
 For a play check, try both modes, move the human paddles, return a ball, let a ball pass
 and check the score/reset, resize the terminal (including very small sizes),
 then press ESC to return to the library.
+
+## Tic Tac Toe
+
+Tic Tac Toe is a standalone, dependency-free guest using the same host API.
+Build the WASM and replace `bundled-games/tictactoe.adm` with its deterministic
+ZIP package (`manifest.toml` and `game.wasm`):
+
+```bash
+bash games/tictactoe/build.sh
+cargo run -p arcadium-cli
+```
+
+Select **Tic Tac Toe** in the library and press ENTER. Choose **1P**
+(human X vs computer O) or **2P** (local X vs O) with LEFT/RIGHT or A/D,
+then ENTER. Move the bracket cursor with arrows or WASD and place a mark with
+ENTER. Occupied cells ignore placement. The computer responds immediately using
+deterministic Minimax and cannot be forced into a loss from a new match.
+Draws immediately clear the board and start another round in the same mode,
+without a result message. Only wins end the match; ENTER then starts a fresh board. ESC returns
+to the library; relaunch to change mode.
+
+Rendering matches Arcadium and Pong: a dark court, cyan X, magenta O, mode
+cards, and highlighted selection/winning cells through `draw_cell`. Large
+terminals show block marks; compact layouts retain the bracket cursor.
+The minimum game area is 26×13;
+smaller terminals suspend interaction and preserve the board until resized.
+
+```bash
+cargo fmt --manifest-path games/tictactoe/Cargo.toml --check
+cargo check --manifest-path games/tictactoe/Cargo.toml --target wasm32-unknown-unknown
+cargo clippy --manifest-path games/tictactoe/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+cargo test --manifest-path games/tictactoe/Cargo.toml
+```
+
+For a play check, try both modes, attempt an occupied cell, finish a win and a
+draw, replay, resize below the minimum and back, then return to the library.

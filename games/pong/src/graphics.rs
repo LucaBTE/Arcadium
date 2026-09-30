@@ -43,103 +43,79 @@ fn clear(width: i32, height: i32) {
     }
 }
 
-pub(super) fn render_selection(width: i32, height: i32, computer: bool) {
-    clear(width, height);
-    if width >= 40 && height >= 18 {
-        let top = (height - 16) / 2;
-        for (row, line) in [
-            "█▀▀█  █▀▀█  █▄  █  █▀▀▀",
-            "█▄▄█  █  █  █ █ █  █ ▄▄",
-            "█     █▄▄█  █  ▀█  █▄▄█",
-        ]
-        .iter()
-        .enumerate()
-        {
-            centered(
-                width,
+fn render_title(width: i32, top: i32, large: bool) {
+    if !large {
+        centered(width, top, "P O N G", CYAN);
+        return;
+    }
+    let letters = [
+        ["╭────╮", "│    │", "├────╯", "│     ", "╵     "],
+        ["╭────╮", "│    │", "│    │", "│    │", "╰────╯"],
+        ["╷    ╷", "│╲   │", "│ ╲  │", "│  ╲ │", "╵   ╲╵"],
+        ["╭────╮", "│     ", "│  ──┐", "│    │", "╰────╯"],
+    ];
+    let x = (width - 33) / 2;
+    for (letter, rows) in letters.iter().enumerate() {
+        for (row, line) in rows.iter().enumerate() {
+            text(
+                x + letter as i32 * 9,
                 top + row as i32,
                 line,
-                if row == 1 { WHITE } else { CYAN },
+                CYAN,
+                BACKGROUND,
             );
         }
-        centered(width, top + 4, "T H E   T E R M I N A L   C O U R T", MUTED);
-        let card_width = 34;
-        let x = (width - card_width) / 2;
-        for (index, label, detail, selected) in [
-            (0, "One player", "You vs Computer", computer),
-            (1, "Two players", "Local head-to-head", !computer),
-        ] {
-            let y = top + 6 + index * 4;
-            let background = if selected { SELECTED } else { PANEL };
-            let accent = if selected { CYAN } else { MUTED };
-            for row in 0..3 {
-                for col in 0..card_width {
-                    cell(
-                        x + col,
-                        y + row,
-                        if col == 0 { '▌' } else { ' ' },
-                        accent,
-                        background,
-                    );
-                }
+    }
+}
+
+pub(super) fn render_selection(width: i32, height: i32, computer: bool) {
+    clear(width, height);
+    let large_title = width >= 60 && height >= 17;
+    let title_height = if large_title { 5 } else { 1 };
+    let menu_height = title_height + 8;
+    let top = (height - menu_height) / 2;
+    render_title(width, top, large_title);
+    // Terminal cells are roughly twice as tall as they are wide.
+    let card_width = 10.min((width - 4) / 2);
+    let x = (width - (card_width * 2 + 2)) / 2;
+    let y = top + title_height + 1;
+    for (index, label, selected) in [(0, "1P", computer), (1, "2P", !computer)] {
+        let left = x + index * (card_width + 2);
+        let background = if selected { SELECTED } else { PANEL };
+        let foreground = if selected { CYAN } else { MUTED };
+        let border = if selected {
+            ['╔', '╗', '╚', '╝', '═', '║']
+        } else {
+            ['┌', '┐', '└', '┘', '─', '│']
+        };
+        for row in 0..5 {
+            for column in 0..card_width {
+                let character = match (column, row) {
+                    (0, 0) => border[0],
+                    (c, 0) if c == card_width - 1 => border[1],
+                    (0, 4) => border[2],
+                    (c, 4) if c == card_width - 1 => border[3],
+                    (_, 0 | 4) => border[4],
+                    (c, _) if c == 0 || c == card_width - 1 => border[5],
+                    _ => ' ',
+                };
+                cell(left + column, y + row, character, foreground, background);
             }
-            text(
-                x + 2,
-                y,
-                if selected { "›" } else { " " },
-                accent,
-                background,
-            );
-            text(x + 4, y, label, WHITE, background);
-            text(x + 4, y + 1, detail, MUTED, background);
         }
-        centered(width, top + 14, "W/S or ↑/↓  SELECT    ENTER  PLAY", WHITE);
-        centered(
-            width,
-            top + 15,
-            if computer {
-                "W/S moves your paddle"
-            } else {
-                "Left: W/S    Right: ↑/↓"
-            },
-            MUTED,
-        );
-    } else {
-        let top = (height - 8) / 2;
-        centered(width, top, "P O N G", CYAN);
-        centered(
-            width,
-            top + 2,
-            if computer {
-                "› One player"
-            } else {
-                "  One player"
-            },
-            if computer { CYAN } else { MUTED },
-        );
-        centered(
-            width,
-            top + 3,
-            if computer {
-                "  Two players"
-            } else {
-                "› Two players"
-            },
-            if computer { MUTED } else { CYAN },
-        );
-        centered(width, top + 5, "W/S or ↑/↓: select", WHITE);
-        centered(width, top + 6, "ENTER: play", WHITE);
-        centered(
-            width,
-            top + 7,
-            if computer {
-                "W/S vs Computer"
-            } else {
-                "W/S vs ↑/↓"
-            },
-            MUTED,
+        text(
+            left + (card_width - 2) / 2,
+            y + 2,
+            label,
+            foreground,
+            background,
         );
     }
+    centered(
+        width,
+        top + menu_height - 1,
+        "←→ Choose   Enter Play",
+        MUTED,
+    );
 }
 
 fn digits(mut score: u32, buffer: &mut [u8; 10]) -> &[u8] {
@@ -169,7 +145,17 @@ pub(super) fn render(game: &Game, width: i32, height: i32) {
     let score_width = (left.len() + right.len() + 3) as i32;
     let start = (width - score_width) / 2;
     if width >= score_width + 32 {
-        text(2, 0, "YOU  W/S", CYAN, BACKGROUND);
+        text(
+            2,
+            0,
+            if game.computer {
+                "YOU  ↑/↓"
+            } else {
+                "PLAYER 1  W/S"
+            },
+            CYAN,
+            BACKGROUND,
+        );
         let label = if game.computer {
             "COMPUTER"
         } else {
