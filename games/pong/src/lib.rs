@@ -183,6 +183,10 @@ mod guest {
 
     const UP: i32 = 0;
     const DOWN: i32 = 1;
+    const LEFT: i32 = 2;
+    const RIGHT: i32 = 3;
+    const A: i32 = 5;
+    const D: i32 = 7;
     const W: i32 = 4;
     const S: i32 = 6;
     const ENTER: i32 = 9;
@@ -215,9 +219,18 @@ mod guest {
         let right = unsafe { key_pressed(DOWN) - key_pressed(UP) };
         match SCREEN.get() {
             Some(Screen::Select { mut computer }) => {
-                if left + right < 0 {
+                let horizontal = unsafe {
+                    i32::from(key_pressed(RIGHT) != 0 || key_pressed(D) != 0)
+                        - i32::from(key_pressed(LEFT) != 0 || key_pressed(A) != 0)
+                };
+                let direction = if horizontal != 0 {
+                    horizontal
+                } else {
+                    left + right
+                };
+                if direction < 0 {
                     computer = true;
-                } else if left + right > 0 {
+                } else if direction > 0 {
                     computer = false;
                 }
                 if unsafe { key_pressed(ENTER) } != 0 {
@@ -231,7 +244,13 @@ mod guest {
                 }
             }
             Some(Screen::Playing(mut game)) => {
-                game.update(width, height, delta_seconds, left, right);
+                game.update(
+                    width,
+                    height,
+                    delta_seconds,
+                    if game.computer { right } else { left },
+                    right,
+                );
                 render(&game, width, height);
                 SCREEN.set(Some(Screen::Playing(game)));
             }
