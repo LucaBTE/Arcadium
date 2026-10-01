@@ -1,13 +1,15 @@
-use crate::{BALL_RADIUS_X, BALL_WIDTH, Game, PADDLE_HEIGHT, PADDLE_INSET, PLAY_TOP};
+#[path = "../../common/hud.rs"]
+mod hud;
 
-const BACKGROUND: i32 = 0x0b1020;
-const PANEL: i32 = 0x121c32;
-const SELECTED: i32 = 0x173347;
-const CYAN: i32 = 0x67e8f9;
-const PINK: i32 = 0xf0abfc;
-const WHITE: i32 = 0xf1f5f9;
-const MUTED: i32 = 0x94a3b8;
-const LINE: i32 = 0x293a55;
+use crate::{BALL_RADIUS_X, BALL_WIDTH, Game, PADDLE_HEIGHT, PADDLE_INSET, play_top};
+
+const BACKGROUND: i32 = 0x0e101d;
+const CYAN: i32 = 0xff7338;
+const PINK: i32 = 0xf4e7d3;
+const WHITE: i32 = 0xf4e7d3;
+const MUTED: i32 = 0xa99e94;
+const LINE: i32 = 0x68402f;
+const SHADOW: i32 = 0x702b1e;
 
 #[link(wasm_import_module = "arcadium")]
 unsafe extern "C" {
@@ -49,21 +51,40 @@ fn render_title(width: i32, top: i32, large: bool) {
         return;
     }
     let letters = [
-        ["╭────╮", "│    │", "├────╯", "│     ", "╵     "],
-        ["╭────╮", "│    │", "│    │", "│    │", "╰────╯"],
-        ["╷    ╷", "│╲   │", "│ ╲  │", "│  ╲ │", "╵   ╲╵"],
-        ["╭────╮", "│     ", "│  ──┐", "│    │", "╰────╯"],
+        [30, 17, 30, 16, 16],
+        [14, 17, 17, 17, 14],
+        [17, 25, 21, 19, 17],
+        [15, 16, 23, 17, 15],
     ];
-    let x = (width - 33) / 2;
+    let x = (width - 46) / 2;
     for (letter, rows) in letters.iter().enumerate() {
-        for (row, line) in rows.iter().enumerate() {
-            text(
-                x + letter as i32 * 9,
-                top + row as i32,
-                line,
-                CYAN,
-                BACKGROUND,
-            );
+        for (row, bits) in rows.iter().enumerate() {
+            for column in 0..5 {
+                if bits & (1 << (4 - column)) != 0 {
+                    text(
+                        x + letter as i32 * 12 + column * 2 + 1,
+                        top + row as i32 + 1,
+                        "▓▓",
+                        SHADOW,
+                        BACKGROUND,
+                    );
+                }
+            }
+        }
+    }
+    for (letter, rows) in letters.iter().enumerate() {
+        for (row, bits) in rows.iter().enumerate() {
+            for column in 0..5 {
+                if bits & (1 << (4 - column)) != 0 {
+                    text(
+                        x + letter as i32 * 12 + column * 2,
+                        top + row as i32,
+                        "▓▓",
+                        CYAN,
+                        BACKGROUND,
+                    );
+                }
+            }
         }
     }
 }
@@ -72,112 +93,59 @@ pub(super) fn render_selection(width: i32, height: i32, computer: bool) {
     clear(width, height);
     let large_title = width >= 60 && height >= 17;
     let title_height = if large_title { 5 } else { 1 };
-    let menu_height = title_height + 8;
+    let large_options = width >= 48 && height >= 15;
+    let option_height = if large_options { 3 } else { 1 };
+    let gap = if height >= 17 { 3 } else { 2 };
+    let instruction_gap = if height >= 13 { 2 } else { 1 };
+    let menu_height = title_height + gap + option_height + gap + instruction_gap + 1;
     let top = (height - menu_height) / 2;
     render_title(width, top, large_title);
-    // Terminal cells are roughly twice as tall as they are wide.
-    let card_width = 10.min((width - 4) / 2);
-    let x = (width - (card_width * 2 + 2)) / 2;
-    let y = top + title_height + 1;
-    for (index, label, selected) in [(0, "1P", computer), (1, "2P", !computer)] {
-        let left = x + index * (card_width + 2);
-        let background = if selected { SELECTED } else { PANEL };
-        let foreground = if selected { CYAN } else { MUTED };
-        let border = if selected {
-            ['╔', '╗', '╚', '╝', '═', '║']
-        } else {
-            ['┌', '┐', '└', '┘', '─', '│']
-        };
-        for row in 0..5 {
-            for column in 0..card_width {
-                let character = match (column, row) {
-                    (0, 0) => border[0],
-                    (c, 0) if c == card_width - 1 => border[1],
-                    (0, 4) => border[2],
-                    (c, 4) if c == card_width - 1 => border[3],
-                    (_, 0 | 4) => border[4],
-                    (c, _) if c == 0 || c == card_width - 1 => border[5],
-                    _ => ' ',
-                };
-                cell(left + column, y + row, character, foreground, background);
-            }
-        }
-        text(
-            left + (card_width - 2) / 2,
-            y + 2,
-            label,
-            foreground,
-            background,
-        );
-    }
-    centered(
-        width,
-        top + menu_height - 1,
-        "←→ Choose   Enter Play",
-        MUTED,
-    );
-}
-
-fn digits(mut score: u32, buffer: &mut [u8; 10]) -> &[u8] {
-    let mut start = buffer.len();
-    loop {
-        start -= 1;
-        buffer[start] = b'0' + (score % 10) as u8;
-        score /= 10;
-        if score == 0 {
-            return &buffer[start..];
-        }
-    }
+    let options_y = top + title_height + gap;
+    hud::mode_options(width, options_y, computer, large_options);
+    let controls_y = options_y + option_height + gap;
+    hud::centered_control(width, controls_y, "←/→", "Choose");
+    hud::centered_control(width, controls_y + instruction_gap, "Enter", "Play");
 }
 
 pub(super) fn render(game: &Game, width: i32, height: i32) {
     clear(width, height);
+    let top = play_top(width, height);
     for x in 0..width {
-        cell(x, 1, '─', LINE, BACKGROUND);
+        cell(x, top - 1, '─', LINE, BACKGROUND);
     }
-    for y in (PLAY_TOP..height).step_by(2) {
+    for y in (top..height).step_by(2) {
         cell(width / 2, y, '┊', LINE, BACKGROUND);
     }
-    let mut left_buffer = [0; 10];
-    let mut right_buffer = [0; 10];
-    let left = digits(game.left_score, &mut left_buffer);
-    let right = digits(game.right_score, &mut right_buffer);
-    let score_width = (left.len() + right.len() + 3) as i32;
-    let start = (width - score_width) / 2;
+    hud::scoreboard(width, 0, game.left_score, game.right_score, top > 3);
+    // Player identities sit beside the caption; key hints sit beside the digits.
+    // Keep enough room for all score digits before showing the side hints.
+    let score_width = if top > 3 {
+        ((format!("{:02}", game.left_score).len() + format!("{:02}", game.right_score).len()) * 4
+            + 1) as i32
+    } else {
+        (format!("{:02}", game.left_score).len() + format!("{:02}", game.right_score).len() + 3)
+            as i32
+    };
     if width >= score_width + 32 {
         text(
             2,
             0,
-            if game.computer {
-                "YOU  ↑/↓"
-            } else {
-                "PLAYER 1  W/S"
-            },
+            if game.computer { "YOU" } else { "1P" },
             CYAN,
             BACKGROUND,
         );
-        let label = if game.computer {
-            "COMPUTER"
-        } else {
-            "PLAYER 2  ↑/↓"
-        };
+        let right_label = if game.computer { "CPU" } else { "2P" };
         text(
-            width - 2 - label.chars().count() as i32,
+            width - 2 - right_label.len() as i32,
             0,
-            label,
-            PINK,
+            right_label,
+            WHITE,
             BACKGROUND,
         );
-    }
-    for (index, &byte) in left.iter().chain(b" : ").chain(right).enumerate() {
-        let color = if index < left.len() {
-            CYAN
-        } else if index >= left.len() + 3 {
-            PINK
-        } else {
-            MUTED
-        };
-        cell(start + index as i32, 0, byte as char, color, BACKGROUND);
+        hud::control(2, 1, if game.computer { "↑/↓" } else { "W/S" }, "Move");
+        if !game.computer {
+            hud::control(width - 14, 1, "↑/↓", "Move");
+        }
     }
     for offset in 0..PADDLE_HEIGHT {
         cell(
@@ -211,5 +179,33 @@ pub(super) fn render_small(width: i32, height: i32) {
     if width >= 19 && height >= 2 {
         centered(width, height / 2 - 1, "Enlarge to 24 x 10", CYAN);
         centered(width, height / 2, "to resume Pong", MUTED);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hud::tests::assert_in_bounds;
+
+    #[test]
+    fn screens_fit_at_every_layout_breakpoint() {
+        for width in [24, 47, 48, 59, 60, 80, 120] {
+            for height in [10, 14, 15, 16, 17, 18, 24, 40] {
+                for computer in [false, true] {
+                    assert_in_bounds(width, height, || render_selection(width, height, computer));
+                    let mut game = Game::new(width, height);
+                    game.computer = computer;
+                    assert_in_bounds(width, height, || render(&game, width, height));
+                    game.left_score = u32::MAX;
+                    game.right_score = u32::MAX;
+                    assert_in_bounds(width, height, || render(&game, width, height));
+                }
+            }
+        }
+        for width in 0..24 {
+            for height in 0..10 {
+                assert_in_bounds(width, height, || render_small(width, height));
+            }
+        }
     }
 }

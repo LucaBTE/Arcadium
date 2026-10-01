@@ -8,14 +8,13 @@ use ratatui::{
 
 use crate::{app::App, mode::AppMode};
 
-const BACKGROUND: Color = Color::Rgb(11, 16, 32);
-const PANEL: Color = Color::Rgb(18, 28, 50);
-const SELECTED: Color = Color::Rgb(23, 51, 71);
-const ACCENT: Color = Color::Rgb(103, 232, 249);
-const TEXT: Color = Color::Rgb(241, 245, 249);
-const MUTED: Color = Color::Rgb(148, 163, 184);
-const BORDER: Color = Color::Rgb(41, 58, 85);
-const PINK: Color = Color::Rgb(240, 171, 252);
+const BACKGROUND: Color = Color::Rgb(14, 16, 29);
+const PANEL: Color = Color::Rgb(24, 26, 42);
+const ACCENT: Color = Color::Rgb(255, 115, 56);
+const TEXT: Color = Color::Rgb(244, 231, 211);
+const MUTED: Color = Color::Rgb(169, 158, 148);
+const BORDER: Color = Color::Rgb(104, 64, 47);
+const SHADOW: Color = Color::Rgb(112, 43, 30);
 
 // Five-row letterforms for the ARCADIUM wordmark.
 const WORDMARK: [[u8; 5]; 8] = [
@@ -44,9 +43,26 @@ fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
     for (letter, rows) in WORDMARK.iter().enumerate() {
         for (row, bits) in rows.iter().enumerate() {
             for column in 0..5 {
+                if bits & (1 << (4 - column)) != 0
+                    && start + letter as u16 * 7 + column + 1 < area.right()
+                    && area.y + row as u16 + 1 < area.bottom()
+                {
+                    frame.buffer_mut()[(
+                        start + letter as u16 * 7 + column + 1,
+                        area.y + row as u16 + 1,
+                    )]
+                        .set_char('▓')
+                        .set_fg(SHADOW);
+                }
+            }
+        }
+    }
+    for (letter, rows) in WORDMARK.iter().enumerate() {
+        for (row, bits) in rows.iter().enumerate() {
+            for column in 0..5 {
                 if bits & (1 << (4 - column)) != 0 {
                     frame.buffer_mut()[(start + letter as u16 * 7 + column, area.y + row as u16)]
-                        .set_char('█')
+                        .set_char('▓')
                         .set_fg(ACCENT)
                         .set_style(Style::default().add_modifier(Modifier::BOLD));
                 }
@@ -72,7 +88,10 @@ fn shortcuts<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
         if index > 0 {
             spans.push(Span::raw("   "));
         }
-        spans.push(Span::styled(key, Style::default().fg(ACCENT)));
+        spans.push(Span::styled(
+            format!("[{key}]"),
+            Style::default().fg(ACCENT),
+        ));
         spans.push(Span::styled(
             format!(" {label}"),
             Style::default().fg(MUTED),
@@ -81,22 +100,62 @@ fn shortcuts<'a>(items: &[(&'a str, &'a str)]) -> Line<'a> {
     Line::from(spans)
 }
 
+fn shortcut_rows<'a>(items: &[(&'a str, &'a str)], width: u16) -> Vec<Line<'a>> {
+    let mut rows = Vec::new();
+    let mut current = Vec::new();
+    for &item in items {
+        let mut candidate = current.clone();
+        candidate.push(item);
+        if !current.is_empty() && shortcuts(&candidate).width() > usize::from(width) {
+            rows.push(shortcuts(&current));
+            current.clear();
+        }
+        current.push(item);
+    }
+    if !current.is_empty() {
+        rows.push(shortcuts(&current));
+    }
+    rows
+}
+
 fn render_library(frame: &mut Frame, app: &App) {
     let area = frame.area();
+    if area.width < 20 || area.height < 7 {
+        frame.render_widget(
+            Paragraph::new("Enlarge terminal")
+                .style(Style::default().fg(MUTED))
+                .alignment(Alignment::Center),
+            Rect::new(
+                area.x,
+                area.y + area.height / 2,
+                area.width,
+                area.height.min(1),
+            ),
+        );
+        return;
+    }
     let width = area.width.saturating_sub(4).min(72);
     let large_wordmark = width >= WORDMARK_WIDTH && area.height >= 22;
-    let header_height = if large_wordmark { 6 } else { 2 };
+    let header_height = if large_wordmark { 8 } else { 2 };
+    let items: &[(&str, &str)] = if app.game_count() == 0 {
+        &[("Q", "Quit")]
+    } else {
+        &[("↑/↓", "Select"), ("Enter", "Play"), ("Q", "Quit")]
+    };
+    let keys = shortcut_rows(items, width);
+    let footer_height = keys.len() as u16;
     let row_height = if area.height >= 18 { 3 } else { 1 };
     let show_description = area.height >= 16 && width >= 36 && app.game_count() > 0;
     let details_height = if show_description { 3 } else { 0 };
     let available = area
         .height
-        .saturating_sub(header_height + 4 + details_height);
+        .saturating_sub(header_height + 1 + details_height + footer_height);
     let list_height = (app.game_count().max(1).min(u16::MAX as usize) as u16)
         .saturating_mul(row_height)
         .saturating_add(2)
         .min(available);
-    let height = (header_height + list_height + 2 + details_height).min(area.height);
+    let height =
+        (header_height + list_height + 1 + details_height + footer_height).min(area.height);
     let content = Rect::new(
         area.x + (area.width - width) / 2,
         area.y + (area.height - height) / 2,
@@ -138,18 +197,18 @@ fn render_library(frame: &mut Frame, app: &App) {
             .enumerate()
             .map(|(index, game)| {
                 let selected = index == app.selected_game;
-                let rail = if selected { "▌" } else { " " };
-                let marker = if selected { "›" } else { " " };
                 let name = Line::from(vec![
-                    Span::styled(rail, Style::default().fg(PINK)),
                     Span::styled(
-                        format!(" {marker} {}", game.metadata.name),
-                        Style::default().fg(if selected { ACCENT } else { TEXT }),
+                        if selected { "  ❯  " } else { "     " },
+                        Style::default().fg(ACCENT),
+                    ),
+                    Span::styled(
+                        game.metadata.name.to_uppercase(),
+                        Style::default().fg(if selected { TEXT } else { MUTED }),
                     ),
                 ]);
                 if row_height == 3 {
-                    let edge = Line::from(Span::styled(rail, Style::default().fg(PINK)));
-                    ListItem::new(vec![edge.clone(), name, edge])
+                    ListItem::new(vec![Line::default(), name, Line::default()])
                 } else {
                     ListItem::new(name)
                 }
@@ -157,7 +216,7 @@ fn render_library(frame: &mut Frame, app: &App) {
             .collect();
         let list = List::new(items)
             .block(block)
-            .highlight_style(Style::default().bg(SELECTED));
+            .highlight_style(Style::default().add_modifier(Modifier::BOLD));
         let mut state = ListState::default().with_selected(Some(app.selected_game));
         frame.render_stateful_widget(list, list_area, &mut state);
     }
@@ -174,20 +233,15 @@ fn render_library(frame: &mut Frame, app: &App) {
             ),
         );
     }
-    let keys = if app.game_count() == 0 {
-        shortcuts(&[("Q", "Quit")])
-    } else if width < 36 {
-        shortcuts(&[("↑↓", ""), ("Enter", "Play"), ("Q", "Quit")])
-    } else {
-        shortcuts(&[("↑↓", "Select"), ("Enter", "Play"), ("Q", "Quit")])
-    };
     frame.render_widget(
         Paragraph::new(keys).alignment(Alignment::Center),
         Rect::new(
             content.x,
-            content.bottom().saturating_sub(1),
+            content
+                .bottom()
+                .saturating_sub(footer_height.min(content.height)),
             width,
-            content.height.min(1),
+            footer_height.min(content.height),
         ),
     );
 }
@@ -200,15 +254,15 @@ fn render_game(frame: &mut Frame, app: &App) {
     let mut block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(BORDER))
+        .border_style(Style::default().fg(ACCENT))
         .title(
-            Line::from(format!(" {} ", installed_game.metadata.name))
+            Line::from(format!(" {} ", installed_game.metadata.name.to_uppercase()))
                 .style(Style::default().fg(ACCENT)),
         );
     if area.width >= 48 {
         block = block.title(
             Line::from(" ARCADIUM ")
-                .style(Style::default().fg(MUTED).add_modifier(Modifier::BOLD))
+                .style(Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
                 .right_aligned(),
         );
     }
@@ -328,8 +382,8 @@ mod tests {
             (26, 10),
         ] {
             let text = draw(&library, width, height);
-            assert!(text.contains("Game 49"));
-            assert!(text.contains("Play"));
+            assert!(text.contains("GAME 49"));
+            assert!(text.contains("[Enter] Play"));
         }
         assert!(draw(&app(0), 80, 24).contains("No games installed"));
         for width in 0..12 {
@@ -341,6 +395,63 @@ mod tests {
     }
 
     #[test]
+    fn menu_and_game_controls_use_orange_buttons_on_the_dark_background() {
+        for (width, height) in [(80, 24), (40, 12), (26, 10)] {
+            let library = app(2);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal.draw(|frame| render(frame, &library)).unwrap();
+            let buffer = terminal.backend().buffer();
+            for (button, action) in [("[↑/↓]", "Select"), ("[Enter]", "Play"), ("[Q]", "Quit")]
+            {
+                let length = button.chars().count();
+                let start = buffer
+                    .content
+                    .windows(length)
+                    .position(|cells| {
+                        cells.iter().map(|cell| cell.symbol()).collect::<String>() == button
+                    })
+                    .expect("every control remains visible");
+                assert!(
+                    buffer.content[start..start + length]
+                        .iter()
+                        .all(|cell| cell.fg == ACCENT && cell.bg == BACKGROUND)
+                );
+                let action_start = start + length + 1;
+                let cells = &buffer.content[action_start..action_start + action.len()];
+                assert_eq!(
+                    cells.iter().map(|cell| cell.symbol()).collect::<String>(),
+                    action
+                );
+                assert!(
+                    cells
+                        .iter()
+                        .all(|cell| cell.fg == MUTED && cell.bg == BACKGROUND)
+                );
+                assert_eq!(
+                    start / width as usize,
+                    (action_start + action.len() - 1) / width as usize
+                );
+            }
+            let mut game = app(1);
+            game.mode = AppMode::Playing;
+            terminal.draw(|frame| render(frame, &game)).unwrap();
+            let buffer = terminal.backend().buffer();
+            let start = buffer
+                .content
+                .windows(5)
+                .position(|cells| {
+                    cells.iter().map(|cell| cell.symbol()).collect::<String>() == "[Esc]"
+                })
+                .unwrap();
+            assert!(
+                buffer.content[start..start + 5]
+                    .iter()
+                    .all(|cell| cell.fg == ACCENT)
+            );
+        }
+    }
+
+    #[test]
     fn game_errors_show_recovery_without_raw_runtime_details() {
         let mut game = app(1);
         game.mode = AppMode::Playing;
@@ -348,7 +459,7 @@ mod tests {
         let text = draw(&game, 80, 24);
         assert!(text.contains("Game unavailable"));
         assert!(text.contains("This game needs an update."));
-        assert!(text.contains("Esc Library"));
+        assert!(text.contains("[Esc] Library"));
         assert!(!text.contains("arcadium_update"));
         for width in 0..4 {
             for height in 0..4 {
