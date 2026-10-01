@@ -1,6 +1,6 @@
 #![cfg(any(target_arch = "wasm32", test))]
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 mod graphics;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,6 +30,9 @@ const WINS: [[usize; 3]; 8] = [
     [0, 4, 8],
     [2, 4, 6],
 ];
+const DRAW_DURATION: f32 = 1.8;
+const DRAW_BLINK_INTERVAL: f32 = 0.45;
+
 const MOVE_ORDER: [usize; 9] = [4, 0, 2, 6, 8, 1, 3, 5, 7];
 
 fn winning_line(board: &[Mark; 9]) -> Option<[usize; 3]> {
@@ -102,6 +105,7 @@ enum Mode {
 enum State {
     ModeSelect,
     Playing,
+    Draw,
     Finished(Mark),
 }
 
@@ -112,6 +116,9 @@ struct Game {
     turn: Mark,
     mode: Mode,
     state: State,
+    x_score: u32,
+    o_score: u32,
+    draw_elapsed: f32,
 }
 
 impl Game {
@@ -122,6 +129,9 @@ impl Game {
             turn: Mark::X,
             mode: Mode::Singleplayer,
             state: State::ModeSelect,
+            x_score: 0,
+            o_score: 0,
+            draw_elapsed: 0.0,
         }
     }
 
@@ -150,6 +160,7 @@ impl Game {
                     self.play();
                 }
             }
+            State::Draw => {}
             State::Finished(_) => {
                 if enter {
                     self.restart();
@@ -158,9 +169,30 @@ impl Game {
         }
     }
 
+    // Return true for the whole draw frame, including the reset frame, so a
+    // pending key press cannot accidentally place a mark in the new round.
+    fn advance_draw(&mut self, delta: f32) -> bool {
+        if self.state != State::Draw {
+            return false;
+        }
+        if delta.is_finite() {
+            self.draw_elapsed += delta.clamp(0.0, 0.25);
+        }
+        if self.draw_elapsed >= DRAW_DURATION {
+            self.restart();
+        }
+        true
+    }
+
+    fn draw_is_lit(&self) -> bool {
+        self.state == State::Draw && (self.draw_elapsed / DRAW_BLINK_INTERVAL) as u32 % 2 == 0
+    }
+
     fn restart(&mut self) {
         *self = Self {
             mode: self.mode,
+            x_score: self.x_score,
+            o_score: self.o_score,
             state: State::Playing,
             ..Self::new()
         };
@@ -168,8 +200,18 @@ impl Game {
 
     fn finish_round(&mut self) -> bool {
         match result(&self.board) {
-            Some(Mark::Empty) => self.restart(),
-            Some(winner) => self.state = State::Finished(winner),
+            Some(Mark::Empty) => {
+                self.state = State::Draw;
+                self.draw_elapsed = 0.0;
+            }
+            Some(winner) => {
+                if winner == Mark::X {
+                    self.x_score = self.x_score.saturating_add(1);
+                } else {
+                    self.o_score = self.o_score.saturating_add(1);
+                }
+                self.state = State::Finished(winner);
+            }
             None => return false,
         }
         true
@@ -234,7 +276,7 @@ mod guest {
     }
 
     #[unsafe(no_mangle)]
-    pub extern "C" fn arcadium_update(_delta_seconds: f32) {
+    pub extern "C" fn arcadium_update(delta_seconds: f32) {
         let width = unsafe { screen_width() };
         let height = unsafe { screen_height() };
         if width < MIN_WIDTH || height < MIN_HEIGHT {
@@ -246,7 +288,9 @@ mod guest {
                 i32::from(pressed(RIGHT) || pressed(D)) - i32::from(pressed(LEFT) || pressed(A));
             let vertical =
                 i32::from(pressed(DOWN) || pressed(S)) - i32::from(pressed(UP) || pressed(W));
-            game.update(horizontal, vertical, pressed(ENTER));
+            if !game.advance_draw(delta_seconds) {
+                game.update(horizontal, vertical, pressed(ENTER));
+            }
             render(&game, width, height);
             GAME.set(Some(game));
         }
@@ -315,6 +359,10 @@ mod tests {
             game.cursor = index;
             game.update(0, 0, true);
         }
+        assert_eq!(game.state, State::Draw);
+        while game.state == State::Draw {
+            game.advance_draw(0.25);
+        }
         assert_eq!(game.state, State::Playing);
         assert_eq!(game.board, [E; 9]);
         assert_eq!(game.mode, Mode::Multiplayer);
@@ -330,7 +378,7 @@ mod tests {
     }
 
     #[test]
-    fn repeated_draws_reset_silently_in_both_modes_without_an_extra_move() {
+    fn repeated_draws_blink_then_reset_in_both_modes_without_an_extra_move() {
         for mode in [Mode::Singleplayer, Mode::Multiplayer] {
             let mut game = Game {
                 mode,
@@ -341,12 +389,95 @@ mod tests {
                 game.board = [X, O, X, X, O, O, O, X, E];
                 game.cursor = 8;
                 game.update(0, 0, true);
+                assert_eq!(game.state, State::Draw);
+                let board = game.board;
+                let cursor = game.cursor;
+                let mut previous_phase = game.draw_is_lit();
+                let mut changes = 0;
+                while game.state == State::Draw {
+                    game.update(1, 1, true);
+                    assert_eq!(game.board, board);
+                    assert_eq!(game.cursor, cursor);
+                    assert!(game.advance_draw(0.25));
+                    if game.state == State::Draw && game.draw_is_lit() != previous_phase {
+                        previous_phase = game.draw_is_lit();
+                        changes += 1;
+                    }
+                }
+                assert_eq!(changes, 3);
                 assert_eq!(game.board, [E; 9]);
                 assert_eq!(game.turn, X);
                 assert_eq!(game.cursor, 4);
                 assert_eq!(game.mode, mode);
                 assert_eq!(game.state, State::Playing);
             }
+        }
+    }
+
+    #[test]
+    fn computer_can_complete_a_draw_and_animation_handles_invalid_deltas() {
+        let mut game = Game {
+            state: State::Playing,
+            board: [X, O, X, X, O, E, O, X, E],
+            cursor: 8,
+            ..Game::new()
+        };
+        assert!(!game.advance_draw(0.25));
+        game.update(0, 0, true);
+        assert_eq!(game.state, State::Draw);
+        assert_eq!(game.board, [X, O, X, X, O, O, O, X, X]);
+        for delta in [f32::NAN, f32::INFINITY, -1.0, 0.0] {
+            assert!(game.advance_draw(delta));
+            assert_eq!(game.draw_elapsed, 0.0);
+        }
+        assert!(game.advance_draw(100.0));
+        assert_eq!(game.draw_elapsed, 0.25);
+        assert!(game.draw_is_lit());
+        assert!(game.advance_draw(DRAW_BLINK_INTERVAL - 0.25));
+        assert!(!game.draw_is_lit());
+        while game.state == State::Draw {
+            assert!(game.advance_draw(0.25));
+        }
+        assert_eq!(game.state, State::Playing);
+        assert_eq!(game.board, [E; 9]);
+        assert_eq!(game.cursor, 4);
+        assert_eq!(game.draw_elapsed, 0.0);
+        assert_eq!((game.x_score, game.o_score), (0, 0));
+    }
+
+    #[test]
+    fn scores_count_wins_once_and_survive_replays_and_draws() {
+        for mode in [Mode::Singleplayer, Mode::Multiplayer] {
+            let mut game = Game {
+                mode,
+                state: State::Playing,
+                ..Game::new()
+            };
+            game.board = [X, X, E, O, O, E, E, E, E];
+            game.cursor = 2;
+            game.update(0, 0, true);
+            assert_eq!((game.x_score, game.o_score), (1, 0));
+            game.update(1, 0, false);
+            assert_eq!((game.x_score, game.o_score), (1, 0));
+            game.update(0, 0, true);
+            assert_eq!((game.x_score, game.o_score), (1, 0));
+            game.board = [O, O, E, X, X, E, E, E, E];
+            game.turn = O;
+            game.cursor = 2;
+            game.update(0, 0, true);
+            assert_eq!((game.x_score, game.o_score), (1, 1));
+            game.update(0, 0, true);
+            game.board = [X, O, X, X, O, O, O, X, E];
+            game.cursor = 8;
+            game.update(0, 0, true);
+            assert_eq!((game.x_score, game.o_score), (1, 1));
+            assert_eq!(game.state, State::Draw);
+            while game.state == State::Draw {
+                game.advance_draw(0.25);
+            }
+            assert_eq!((game.x_score, game.o_score), (1, 1));
+            assert_eq!(game.state, State::Playing);
+            assert_eq!(game.board, [E; 9]);
         }
     }
 
@@ -380,9 +511,8 @@ mod tests {
                     let mut next = game;
                     next.cursor = index;
                     next.update(0, 0, true);
-                    if next.board == [E; 9] {
-                        assert_eq!(game.board.iter().filter(|&&mark| mark == E).count(), 1);
-                        assert_eq!(next.state, State::Playing);
+                    if next.state == State::Draw {
+                        assert_eq!(result(&next.board), Some(E));
                         continue;
                     }
                     assert_eq!(next.board[index], X);

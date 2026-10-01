@@ -1,6 +1,6 @@
 #![cfg(any(target_arch = "wasm32", test))]
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 mod graphics;
 
 const PADDLE_HEIGHT: i32 = 5;
@@ -20,10 +20,14 @@ const MAX_SPEEDUPS: u32 = 10;
 const MAX_STEP_DISTANCE: f32 = 0.5;
 const MAX_DELTA: f32 = 0.05;
 const PHYSICS_STEP: f32 = 1.0 / 240.0;
-const PLAY_TOP: i32 = 2;
 const MIN_WIDTH: i32 = 24;
 const MIN_HEIGHT: i32 = 10;
 const PADDLE_INSET: i32 = 1;
+
+// Keep the score header outside the court at every terminal size.
+fn play_top(width: i32, height: i32) -> i32 {
+    if width >= 48 && height >= 18 { 5 } else { 3 }
+}
 
 #[derive(Clone, Copy)]
 struct Game {
@@ -43,7 +47,7 @@ impl Game {
     fn new(width: i32, height: i32) -> Self {
         let width = width.max(MIN_WIDTH);
         let height = height.max(MIN_HEIGHT);
-        let paddle_y = ((PLAY_TOP + height - PADDLE_HEIGHT) as f32 / 2.0).round();
+        let paddle_y = ((play_top(width, height) + height - PADDLE_HEIGHT) as f32 / 2.0).round();
         let mut game = Self {
             computer: false,
             rally_hits: 0,
@@ -63,7 +67,7 @@ impl Game {
     fn reset_ball(&mut self, width: i32, height: i32, direction: f32) {
         self.rally_hits = 0;
         self.ball_x = (width - 1) as f32 / 2.0;
-        self.ball_y = (PLAY_TOP + height - 1) as f32 / 2.0;
+        self.ball_y = (play_top(width, height) + height - 1) as f32 / 2.0;
         self.ball_velocity_x = direction * BALL_SPEED;
         self.ball_velocity_y = SERVE_VERTICAL_SPEED;
     }
@@ -88,15 +92,15 @@ impl Game {
             0.0
         };
         let court_width = (width - 1 - 2 * PADDLE_INSET) as f32;
-        let court_height = (height - 1 - PLAY_TOP) as f32;
+        let court_height = (height - 1 - play_top(width, height)) as f32;
         let paddle_bottom = (height - PADDLE_HEIGHT) as f32;
-        self.left_paddle_y =
-            (self.left_paddle_y + left as f32 * PADDLE_STEP).clamp(PLAY_TOP as f32, paddle_bottom);
+        self.left_paddle_y = (self.left_paddle_y + left as f32 * PADDLE_STEP)
+            .clamp(play_top(width, height) as f32, paddle_bottom);
         let right_movement = if self.computer {
             let target = if self.ball_velocity_x > 0.0 {
                 self.ball_y
             } else {
-                (PLAY_TOP + height - 1) as f32 / 2.0
+                (play_top(width, height) + height - 1) as f32 / 2.0
             };
             let center = self.right_paddle_y + (PADDLE_HEIGHT - 1) as f32 / 2.0;
             let movement = self.computer_speed() * court_height * delta;
@@ -104,12 +108,14 @@ impl Game {
         } else {
             right as f32 * PADDLE_STEP
         };
-        self.right_paddle_y =
-            (self.right_paddle_y + right_movement).clamp(PLAY_TOP as f32, paddle_bottom);
+        self.right_paddle_y = (self.right_paddle_y + right_movement)
+            .clamp(play_top(width, height) as f32, paddle_bottom);
         self.ball_x = self
             .ball_x
             .clamp(-BALL_RADIUS_X, (width - 1) as f32 + BALL_RADIUS_X);
-        self.ball_y = self.ball_y.clamp(PLAY_TOP as f32, (height - 1) as f32);
+        self.ball_y = self
+            .ball_y
+            .clamp(play_top(width, height) as f32, (height - 1) as f32);
 
         // Limit travel per step so fast rallies cannot skip a paddle on large courts.
         let mut remaining = delta;
@@ -124,7 +130,7 @@ impl Game {
             let previous_x = self.ball_x;
             self.ball_x += velocity_x * step;
             self.ball_y += velocity_y * step;
-            let top = PLAY_TOP as f32;
+            let top = play_top(width, height) as f32;
             let bottom = (height - 1) as f32;
             if self.ball_y < top {
                 self.ball_y = 2.0 * top - self.ball_y;
@@ -335,7 +341,7 @@ mod tests {
             assert!((game.ball_velocity_y - 0.4 * MAX_VERTICAL_SPEED * expected).abs() < 0.00001);
         }
         let hits = game.rally_hits;
-        game.ball_y = 2.01;
+        game.ball_y = play_top(80, 24) as f32 + 0.01;
         game.ball_velocity_y = -SERVE_VERTICAL_SPEED;
         game.ball_x = 40.0;
         game.update(80, 24, 0.02, 0, 0);
@@ -351,7 +357,7 @@ mod tests {
             game.update(width, height, 0.04, 0, 0);
             fractions.push((
                 (game.ball_x - x) / (width - 3) as f32,
-                (game.ball_y - y) / (height - 3) as f32,
+                (game.ball_y - y) / (height - 1 - play_top(width, height)) as f32,
             ));
         }
         for (x, y) in fractions {
@@ -388,7 +394,11 @@ mod tests {
         game.update(80, 24, 0.04, -1, -1);
         without_input.update(80, 24, 0.04, -1, 0);
         assert_eq!(game.right_paddle_y, without_input.right_paddle_y);
-        assert!((game.right_paddle_y - before - 0.4).abs() < 0.001);
+        assert!(
+            (game.right_paddle_y - before - COMPUTER_SPEED * (23 - play_top(80, 24)) as f32 * 0.04)
+                .abs()
+                < 0.001
+        );
         assert_eq!(game.left_paddle_y, before - 2.0);
         game.ball_y = 2.0;
         game.update(80, 24, 0.04, 0, 0);
@@ -402,13 +412,16 @@ mod tests {
 
     #[test]
     fn walls_reflect_in_both_directions() {
-        for (y, velocity) in [(2.01, -SERVE_VERTICAL_SPEED), (22.99, SERVE_VERTICAL_SPEED)] {
+        for (y, velocity) in [
+            (play_top(80, 24) as f32 + 0.01, -SERVE_VERTICAL_SPEED),
+            (22.99, SERVE_VERTICAL_SPEED),
+        ] {
             let mut game = Game::new(80, 24);
             game.ball_y = y;
             game.ball_velocity_y = velocity;
             game.update(80, 24, 0.02, 0, 0);
             assert!(game.ball_velocity_y * velocity < 0.0);
-            assert!((2.0..=23.0).contains(&game.ball_y));
+            assert!((play_top(80, 24) as f32..=23.0).contains(&game.ball_y));
         }
     }
 
@@ -443,7 +456,7 @@ mod tests {
             let mut game = Game::new(80, 24);
             game.rally_hits = 8;
             game.ball_x = if direction < 0.0 { 0.6 } else { 78.4 };
-            game.ball_y = PLAY_TOP as f32;
+            game.ball_y = play_top(80, 24) as f32;
             game.ball_velocity_x = direction * BALL_SPEED;
             game.ball_velocity_y = 0.0;
             game.update(80, 24, MAX_DELTA, 0, 0);
@@ -452,7 +465,7 @@ mod tests {
             assert_eq!(game.rally_hits, 0);
             assert_eq!(game.speed_multiplier(), 1.0);
             assert_eq!(game.ball_x, 39.5);
-            assert_eq!(game.ball_y, 12.5);
+            assert_eq!(game.ball_y, (play_top(80, 24) + 23) as f32 / 2.0);
             assert_eq!(game.ball_velocity_x, direction * BALL_SPEED);
         }
     }
@@ -466,7 +479,7 @@ mod tests {
         game.ball_x = 100.0;
         game.ball_y = 100.0;
         game.update(24, 10, f32::NAN, 0, 0);
-        assert_eq!(game.left_paddle_y, 2.0);
+        assert_eq!(game.left_paddle_y, play_top(24, 10) as f32);
         assert_eq!(game.right_paddle_y, 5.0);
         assert_eq!(game.ball_x, 23.5);
         assert_eq!(game.ball_y, 9.0);
