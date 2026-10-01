@@ -5,6 +5,7 @@ mod installed_game;
 mod mode;
 mod registry;
 mod runtime;
+mod score_store;
 mod ui;
 
 pub use discovery::{discover_games, discover_games_from_directory};

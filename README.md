@@ -17,6 +17,9 @@ Core WebAssembly imports use the `arcadium` namespace:
 | `draw_char` | `(x: i32, y: i32, character: i32)` |
 | `draw_cell` | `(x: i32, y: i32, character: i32, foreground: i32, background: i32)` |
 | `key_pressed` | `(key: i32) -> i32` |
+| `load_score` | `() -> i64` |
+| `save_score` | `(score: i64) -> i32` |
+| `request_exit` | `()` |
 
 Coordinates start at zero inside the border; the footer is excluded. Dimensions
 are available at initialization and change on resize without restarting the guest.
@@ -39,6 +42,13 @@ Key codes: `UP=0`, `DOWN=1`, `LEFT=2`, `RIGHT=3`, `W=4`, `A=5`, `S=6`,
 `key_pressed` returns 1 when a press or repeat was received this frame, otherwise
 0 (including unknown codes). Repeated queries do not consume input. ESC belongs
 to Arcadium and shuts down the game before returning to the library.
+
+`load_score` reads the game's saved score, returning zero if none exists.
+`save_score` accepts a nonnegative `u32` value and returns 1 on success or 0
+on failure. Scores are stored separately for each game ID under
+`$XDG_DATA_HOME/arcadium/scores/` (or `~/.local/share/arcadium/scores/`).
+Games should save when the score improves, so it survives an unexpected close.
+`request_exit` ends the current guest after its update and returns to the library.
 
 The loop targets 60 FPS using elapsed wall-clock delta and a remaining-frame
 sleep. Input is drained with non-blocking polling. There is no fixed timestep or

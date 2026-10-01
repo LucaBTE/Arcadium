@@ -1,3 +1,4 @@
+use crate::score_store::ScoreStore;
 use ratatui::style::Color;
 
 /// Integer key codes shared with Core WebAssembly guests.
@@ -45,9 +46,38 @@ pub(crate) struct HostState {
     height: u16,
     screen: Vec<ScreenCell>,
     keys: [bool; 10],
+    score_store: Option<ScoreStore>,
+    exit_requested: bool,
 }
 
 impl HostState {
+    pub fn set_score_store(&mut self, store: ScoreStore) {
+        self.score_store = Some(store);
+    }
+
+    pub fn load_score(&self) -> i64 {
+        self.score_store
+            .as_ref()
+            .map_or(0, |store| i64::from(store.load()))
+    }
+
+    pub fn save_score(&self, score: i64) -> bool {
+        let Ok(score) = u32::try_from(score) else {
+            return false;
+        };
+        self.score_store
+            .as_ref()
+            .is_some_and(|store| store.save(score))
+    }
+
+    pub fn request_exit(&mut self) {
+        self.exit_requested = true;
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.exit_requested
+    }
+
     pub fn resize(&mut self, width: u16, height: u16) {
         if (self.width, self.height) != (width, height) {
             self.width = width;

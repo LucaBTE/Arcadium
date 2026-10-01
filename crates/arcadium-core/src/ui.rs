@@ -1,6 +1,6 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Margin, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
@@ -138,9 +138,9 @@ fn render_library(frame: &mut Frame, app: &App) {
     let large_wordmark = width >= WORDMARK_WIDTH && area.height >= 22;
     let header_height = if large_wordmark { 8 } else { 2 };
     let items: &[(&str, &str)] = if app.game_count() == 0 {
-        &[("Q", "Quit")]
+        &[("Q", "Exit")]
     } else {
-        &[("↑/↓", "Select"), ("Enter", "Play"), ("Q", "Quit")]
+        &[("Enter", "Play"), ("Q", "Exit")]
     };
     let keys = shortcut_rows(items, width);
     let footer_height = keys.len() as u16;
@@ -304,30 +304,12 @@ fn render_game(frame: &mut Frame, app: &App) {
             error_area,
         );
     }
-    let inner = area.inner(Margin {
-        horizontal: 1,
-        vertical: 1,
-    });
-    frame.render_widget(
-        Paragraph::new(shortcuts(&[("Esc", "Library")])).alignment(Alignment::Center),
-        Rect::new(
-            inner.x,
-            inner.y + surface.height,
-            inner.width,
-            inner.height.min(1),
-        ),
-    );
 }
 
-/// The border and one footer row are reserved by Arcadium.
+/// Arcadium reserves the outer border; the game owns the full inner surface.
 pub(crate) fn game_surface(area: Rect) -> Rect {
     let inner = Block::default().borders(Borders::ALL).inner(area);
-    Rect::new(
-        inner.x,
-        inner.y,
-        inner.width,
-        inner.height.saturating_sub(1),
-    )
+    Rect::new(inner.x, inner.y, inner.width, inner.height)
 }
 
 #[cfg(test)]
@@ -395,14 +377,27 @@ mod tests {
     }
 
     #[test]
+    fn arcadium_wordmark_uses_the_platform_accent() {
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| render(frame, &app(2))).unwrap();
+        assert!(
+            terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .any(|cell| cell.symbol() == "▓" && cell.fg == ACCENT)
+        );
+    }
+
+    #[test]
     fn menu_and_game_controls_use_orange_buttons_on_the_dark_background() {
         for (width, height) in [(80, 24), (40, 12), (26, 10)] {
             let library = app(2);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
             terminal.draw(|frame| render(frame, &library)).unwrap();
             let buffer = terminal.backend().buffer();
-            for (button, action) in [("[↑/↓]", "Select"), ("[Enter]", "Play"), ("[Q]", "Quit")]
-            {
+            for (button, action) in [("[Enter]", "Play"), ("[Q]", "Exit")] {
                 let length = button.chars().count();
                 let start = buffer
                     .content
@@ -436,18 +431,9 @@ mod tests {
             game.mode = AppMode::Playing;
             terminal.draw(|frame| render(frame, &game)).unwrap();
             let buffer = terminal.backend().buffer();
-            let start = buffer
-                .content
-                .windows(5)
-                .position(|cells| {
-                    cells.iter().map(|cell| cell.symbol()).collect::<String>() == "[Esc]"
-                })
-                .unwrap();
-            assert!(
-                buffer.content[start..start + 5]
-                    .iter()
-                    .all(|cell| cell.fg == ACCENT)
-            );
+            assert!(!buffer.content.windows(5).any(|cells| {
+                cells.iter().map(|cell| cell.symbol()).collect::<String>() == "[Esc]"
+            }));
         }
     }
 
@@ -459,7 +445,7 @@ mod tests {
         let text = draw(&game, 80, 24);
         assert!(text.contains("Game unavailable"));
         assert!(text.contains("This game needs an update."));
-        assert!(text.contains("[Esc] Library"));
+        assert!(!text.contains("[Esc] Library"));
         assert!(!text.contains("arcadium_update"));
         for width in 0..4 {
             for height in 0..4 {
@@ -469,10 +455,10 @@ mod tests {
     }
 
     #[test]
-    fn surface_reserves_border_and_footer_even_on_tiny_terminals() {
+    fn surface_reserves_the_border_even_on_tiny_terminals() {
         assert_eq!(
             game_surface(Rect::new(0, 0, 80, 24)),
-            Rect::new(1, 1, 78, 21)
+            Rect::new(1, 1, 78, 22)
         );
         for width in 0..4 {
             for height in 0..4 {
