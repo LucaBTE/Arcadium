@@ -65,6 +65,14 @@ impl App {
             self.runtime_message = Some(format!("Game runtime error: {}", error));
 
             self.stop_game();
+        } else if self
+            .runtime
+            .as_ref()
+            .is_some_and(GameRuntime::exit_requested)
+        {
+            self.stop_game();
+            self.mode = AppMode::Library;
+            self.runtime_message = None;
         }
     }
 

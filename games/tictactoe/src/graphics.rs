@@ -7,11 +7,12 @@ const BACKGROUND: i32 = 0x0e101d;
 const PANEL: i32 = 0x181a2a;
 const DRAW_PANEL: i32 = 0x302f3f;
 const CYAN: i32 = 0xff7338;
+const TITLE: i32 = 0xffa04d;
+const TITLE_SHADOW: i32 = 0x753914;
 const PINK: i32 = 0xf4e7d3;
 const WHITE: i32 = 0xf4e7d3;
 const MUTED: i32 = 0xa99e94;
 const LINE: i32 = 0x68402f;
-const SHADOW: i32 = 0x702b1e;
 
 #[link(wasm_import_module = "arcadium")]
 unsafe extern "C" {
@@ -56,7 +57,7 @@ pub(super) fn render_small(width: i32, height: i32) {
 
 fn render_title(width: i32, top: i32, large: bool) {
     if !large {
-        centered(width, top, "T I C   T A C   T O E", CYAN);
+        centered(width, top, "T I C   T A C   T O E", TITLE);
         return;
     }
     let letters = [
@@ -79,7 +80,7 @@ fn render_title(width: i32, top: i32, large: bool) {
                         x + letter as i32 * 6 + (letter / 3) as i32 * 2 + column + 1,
                         top + row as i32 + 1,
                         '▒',
-                        SHADOW,
+                        TITLE_SHADOW,
                         BACKGROUND,
                     );
                 }
@@ -94,7 +95,7 @@ fn render_title(width: i32, top: i32, large: bool) {
                         x + letter as i32 * 6 + (letter / 3) as i32 * 2 + column,
                         top + row as i32,
                         '▓',
-                        CYAN,
+                        TITLE,
                         BACKGROUND,
                     );
                 }
@@ -117,8 +118,8 @@ fn selection(game: &Game, width: i32, height: i32) {
     let options_y = top + title_height + gap;
     hud::mode_options(width, options_y, computer, large_options);
     let controls_y = options_y + option_height + gap;
-    hud::centered_control(width, controls_y, "←/→", "Choose");
-    hud::centered_control(width, controls_y + instruction_gap, "Enter", "Play");
+    hud::centered_control(width, controls_y, "Enter", "Play");
+    hud::centered_control(width, controls_y + instruction_gap, "Esc", "Exit");
 }
 
 pub(super) fn render(game: &Game, width: i32, height: i32) {
@@ -148,7 +149,7 @@ pub(super) fn render(game: &Game, width: i32, height: i32) {
     let top = (height - (base_height + spacing * 3)) / 2;
     let x = (width - board_width) / 2;
     let y = top + score_height + 3 + spacing * 2;
-    centered(width, top, "T I C   T A C   T O E", CYAN);
+    centered(width, top, "T I C   T A C   T O E", TITLE);
     hud::scoreboard(
         width,
         top + 1 + spacing,
@@ -315,8 +316,8 @@ mod tests {
             let height = 40;
             let mut game = Game::new();
             let frame = capture(|| render(&game, width, height));
-            assert_text_centered(&frame, width, "[←/→] Choose");
             assert_text_centered(&frame, width, "[Enter] Play");
+            assert_text_centered(&frame, width, "[Esc] Exit");
 
             game.state = State::Playing;
             let frame = capture(|| render(&game, width, height));

@@ -185,7 +185,8 @@ impl Game {
     }
 
     fn draw_is_lit(&self) -> bool {
-        self.state == State::Draw && (self.draw_elapsed / DRAW_BLINK_INTERVAL) as u32 % 2 == 0
+        self.state == State::Draw
+            && ((self.draw_elapsed / DRAW_BLINK_INTERVAL) as u32).is_multiple_of(2)
     }
 
     fn restart(&mut self) {

@@ -5,11 +5,12 @@ use crate::{BALL_RADIUS_X, BALL_WIDTH, Game, PADDLE_HEIGHT, PADDLE_INSET, play_t
 
 const BACKGROUND: i32 = 0x0e101d;
 const CYAN: i32 = 0xff7338;
+const TITLE: i32 = 0xffa04d;
+const TITLE_SHADOW: i32 = 0x753914;
 const PINK: i32 = 0xf4e7d3;
 const WHITE: i32 = 0xf4e7d3;
 const MUTED: i32 = 0xa99e94;
 const LINE: i32 = 0x68402f;
-const SHADOW: i32 = 0x702b1e;
 
 #[link(wasm_import_module = "arcadium")]
 unsafe extern "C" {
@@ -47,7 +48,7 @@ fn clear(width: i32, height: i32) {
 
 fn render_title(width: i32, top: i32, large: bool) {
     if !large {
-        centered(width, top, "P O N G", CYAN);
+        centered(width, top, "P O N G", TITLE);
         return;
     }
     let letters = [
@@ -65,7 +66,7 @@ fn render_title(width: i32, top: i32, large: bool) {
                         x + letter as i32 * 12 + column * 2 + 1,
                         top + row as i32 + 1,
                         "▓▓",
-                        SHADOW,
+                        TITLE_SHADOW,
                         BACKGROUND,
                     );
                 }
@@ -80,7 +81,7 @@ fn render_title(width: i32, top: i32, large: bool) {
                         x + letter as i32 * 12 + column * 2,
                         top + row as i32,
                         "▓▓",
-                        CYAN,
+                        TITLE,
                         BACKGROUND,
                     );
                 }
@@ -103,8 +104,8 @@ pub(super) fn render_selection(width: i32, height: i32, computer: bool) {
     let options_y = top + title_height + gap;
     hud::mode_options(width, options_y, computer, large_options);
     let controls_y = options_y + option_height + gap;
-    hud::centered_control(width, controls_y, "←/→", "Choose");
-    hud::centered_control(width, controls_y + instruction_gap, "Enter", "Play");
+    hud::centered_control(width, controls_y, "Enter", "Play");
+    hud::centered_control(width, controls_y + instruction_gap, "Esc", "Exit");
 }
 
 pub(super) fn render(game: &Game, width: i32, height: i32) {

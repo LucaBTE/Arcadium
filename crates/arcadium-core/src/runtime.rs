@@ -8,7 +8,7 @@ use wasmtime::{Caller, Engine, Linker, Module, Store, TypedFunc};
 
 use zip::ZipArchive;
 
-use crate::{host::HostState, installed_game::InstalledGame};
+use crate::{host::HostState, installed_game::InstalledGame, score_store::ScoreStore};
 
 const INIT_EXPORT: &str = "arcadium_init";
 const UPDATE_EXPORT: &str = "arcadium_update";
@@ -30,7 +30,12 @@ impl GameRuntime {
 
         let module = Module::from_binary(&engine, &wasm_bytes)?;
 
-        Self::instantiate(&engine, &module)
+        let mut runtime = Self::instantiate(&engine, &module)?;
+        runtime
+            .store
+            .data_mut()
+            .set_score_store(ScoreStore::for_game(&game.metadata.id));
+        Ok(runtime)
     }
 
     fn instantiate(engine: &Engine, module: &Module) -> Result<Self, Box<dyn Error>> {
@@ -72,6 +77,19 @@ impl GameRuntime {
             "key_pressed",
             |caller: Caller<'_, HostState>, key: i32| i32::from(caller.data().key_pressed(key)),
         )?;
+        linker.func_wrap("arcadium", "load_score", |caller: Caller<'_, HostState>| {
+            caller.data().load_score()
+        })?;
+        linker.func_wrap(
+            "arcadium",
+            "save_score",
+            |caller: Caller<'_, HostState>, score: i64| i32::from(caller.data().save_score(score)),
+        )?;
+        linker.func_wrap(
+            "arcadium",
+            "request_exit",
+            |mut caller: Caller<'_, HostState>| caller.data_mut().request_exit(),
+        )?;
         let instance = linker.instantiate(&mut store, module)?;
         let init = instance
             .get_typed_func::<(), i32>(&mut store, INIT_EXPORT)
@@ -109,6 +127,10 @@ impl GameRuntime {
 
     pub fn screen(&self) -> &HostState {
         self.store.data()
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.store.data().exit_requested()
     }
 
     pub fn init(&mut self) -> Result<i32, Box<dyn Error>> {
@@ -231,6 +253,34 @@ mod tests {
             cell.background,
             ratatui::style::Color::Rgb(0x0b, 0x10, 0x20)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn score_and_exit_imports_are_available() -> Result<(), Box<dyn Error>> {
+        let path = std::env::temp_dir().join(format!("arcadium-abi-score-{}", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let mut game = runtime(
+            r#"(module
+            (import "arcadium" "load_score" (func $load (result i64)))
+            (import "arcadium" "save_score" (func $save (param i64) (result i32)))
+            (import "arcadium" "request_exit" (func $exit))
+            (func (export "arcadium_init") (result i32) i32.const 1)
+            (func (export "arcadium_update") (param f32)
+                (if (i64.ne (call $load) (i64.const 0)) (then unreachable))
+                (if (i32.ne (call $save (i64.const 5)) (i32.const 1)) (then unreachable))
+                (call $exit))
+            (func (export "arcadium_shutdown")))"#,
+        )?;
+        game.store
+            .data_mut()
+            .set_score_store(ScoreStore::at_path(path.clone()));
+        game.init()?;
+        game.update(0.0)?;
+        assert!(game.exit_requested());
+        assert_eq!(ScoreStore::at_path(path.clone()).load(), 5);
+        game.shutdown()?;
+        std::fs::remove_file(path)?;
         Ok(())
     }
 

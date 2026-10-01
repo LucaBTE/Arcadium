@@ -21,6 +21,7 @@ pub fn discover_games_from_directory(
         return Ok(());
     }
 
+    let mut games = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
@@ -39,7 +40,7 @@ pub fn discover_games_from_directory(
 
         match load_adm_package(&path) {
             Ok(game) => {
-                registry.register(game);
+                games.push(game);
             }
 
             Err(error) => {
@@ -48,7 +49,25 @@ pub fn discover_games_from_directory(
         }
     }
 
+    games.sort_by(|left, right| {
+        game_order(&left.metadata.id)
+            .cmp(&game_order(&right.metadata.id))
+            .then_with(|| left.metadata.name.cmp(&right.metadata.name))
+    });
+    for game in games {
+        registry.register(game);
+    }
+
     Ok(())
+}
+
+fn game_order(id: &str) -> u8 {
+    match id {
+        "com.arcadium.snake" => 0,
+        "com.arcadium.pong" => 1,
+        "com.arcadium.tictactoe" => 2,
+        _ => 3,
+    }
 }
 
 pub fn discover_games(bundled_directory: &Path, user_directory: &Path) -> io::Result<GameRegistry> {
