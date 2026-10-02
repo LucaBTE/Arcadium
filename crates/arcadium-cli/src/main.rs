@@ -11,7 +11,7 @@ fn main() -> io::Result<()> {
 
     let registry = discover_games(&bundled_directory, &user_directory)?;
 
-    arcadium_core::run(registry)
+    arcadium_core::run(registry, bundled_directory, user_directory)
 }
 
 fn bundled_games_directory() -> PathBuf {

@@ -52,7 +52,7 @@ pub fn discover_games_from_directory(
     games.sort_by(|left, right| {
         game_order(&left.metadata.id)
             .cmp(&game_order(&right.metadata.id))
-            .then_with(|| left.metadata.name.cmp(&right.metadata.name))
+            .then_with(|| left.source_path.cmp(&right.source_path))
     });
     for game in games {
         registry.register(game);
@@ -80,7 +80,7 @@ pub fn discover_games(bundled_directory: &Path, user_directory: &Path) -> io::Re
     Ok(registry)
 }
 
-fn load_adm_package(path: &Path) -> Result<InstalledGame, Box<dyn Error>> {
+pub(crate) fn load_adm_package(path: &Path) -> Result<InstalledGame, Box<dyn Error>> {
     let file = File::open(path)?;
 
     let mut archive = ZipArchive::new(file)?;
