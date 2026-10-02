@@ -71,14 +71,17 @@ fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
     }
 }
 
-pub fn render(frame: &mut Frame, app: &App) {
+pub fn render(frame: &mut Frame, app: &App) -> Option<Rect> {
     let area = frame.area();
     frame
         .buffer_mut()
         .set_style(area, Style::default().fg(TEXT).bg(BACKGROUND));
     match app.mode {
         AppMode::Library => render_library(frame, app),
-        AppMode::Playing => render_game(frame, app),
+        AppMode::Playing => {
+            render_game(frame, app);
+            None
+        }
     }
 }
 
@@ -118,44 +121,41 @@ fn shortcut_rows<'a>(items: &[(&'a str, &'a str)], width: u16) -> Vec<Line<'a>> 
     rows
 }
 
-fn render_library(frame: &mut Frame, app: &App) {
+fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
     let area = frame.area();
     if area.width < 20 || area.height < 7 {
         frame.render_widget(
             Paragraph::new("Enlarge terminal")
                 .style(Style::default().fg(MUTED))
                 .alignment(Alignment::Center),
-            Rect::new(
-                area.x,
-                area.y + area.height / 2,
-                area.width,
-                area.height.min(1),
-            ),
+            Rect::new(area.x, area.y + area.height / 2, area.width, 1),
         );
-        return;
+        return None;
     }
     let width = area.width.saturating_sub(4).min(72);
     let large_wordmark = width >= WORDMARK_WIDTH && area.height >= 22;
     let header_height = if large_wordmark { 8 } else { 2 };
     let items: &[(&str, &str)] = if app.game_count() == 0 {
-        &[("Q", "Exit")]
+        &[("I", "Install Game"), ("Q", "Exit")]
     } else {
-        &[("Enter", "Play"), ("Q", "Exit")]
+        &[("Enter", "Play"), ("I", "Install Game"), ("Q", "Exit")]
     };
     let keys = shortcut_rows(items, width);
     let footer_height = keys.len() as u16;
+    let status_height = u16::from(app.library_message.is_some() && area.height >= 12);
     let row_height = if area.height >= 18 { 3 } else { 1 };
-    let show_description = area.height >= 16 && width >= 36 && app.game_count() > 0;
-    let details_height = if show_description { 3 } else { 0 };
+    let show_button =
+        width >= 20 && area.height >= header_height + footer_height + status_height + 9;
+    let details_height = if show_button { 5 } else { 0 };
     let available = area
         .height
-        .saturating_sub(header_height + 1 + details_height + footer_height);
+        .saturating_sub(header_height + 1 + details_height + footer_height + status_height);
     let list_height = (app.game_count().max(1).min(u16::MAX as usize) as u16)
         .saturating_mul(row_height)
         .saturating_add(2)
         .min(available);
-    let height =
-        (header_height + list_height + 1 + details_height + footer_height).min(area.height);
+    let height = (header_height + list_height + 1 + details_height + footer_height + status_height)
+        .min(area.height);
     let content = Rect::new(
         area.x + (area.width - width) / 2,
         area.y + (area.height - height) / 2,
@@ -164,20 +164,10 @@ fn render_library(frame: &mut Frame, app: &App) {
     );
     render_wordmark(
         frame,
-        Rect::new(
-            content.x,
-            content.y,
-            width,
-            content.height.min(header_height),
-        ),
+        Rect::new(content.x, content.y, width, header_height),
         large_wordmark,
     );
-    let list_area = Rect::new(
-        content.x,
-        content.y + content.height.min(header_height),
-        width,
-        list_height,
-    );
+    let list_area = Rect::new(content.x, content.y + header_height, width, list_height);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -196,7 +186,7 @@ fn render_library(frame: &mut Frame, app: &App) {
             .games()
             .enumerate()
             .map(|(index, game)| {
-                let selected = index == app.selected_game;
+                let selected = !app.install_focused && index == app.selected_game;
                 let name = Line::from(vec![
                     Span::styled(
                         if selected { "  ❯  " } else { "     " },
@@ -217,19 +207,49 @@ fn render_library(frame: &mut Frame, app: &App) {
         let list = List::new(items)
             .block(block)
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-        let mut state = ListState::default().with_selected(Some(app.selected_game));
+        let mut state =
+            ListState::default().with_selected((!app.install_focused).then_some(app.selected_game));
         frame.render_stateful_widget(list, list_area, &mut state);
     }
-    if show_description && let Some(game) = app.selected_game() {
+    let button = show_button.then(|| Rect::new(content.x, list_area.bottom() + 1, 18, 3));
+    if let Some(button) = button {
         frame.render_widget(
-            Paragraph::new(game.metadata.description.as_str())
-                .style(Style::default().fg(MUTED))
-                .wrap(Wrap { trim: true }),
+            Paragraph::new("Install new game")
+                .alignment(Alignment::Center)
+                .style(
+                    Style::default()
+                        .fg(if app.install_focused { TEXT } else { MUTED })
+                        .bg(PANEL),
+                )
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_type(if app.install_focused {
+                            BorderType::Double
+                        } else {
+                            BorderType::Rounded
+                        })
+                        .border_style(Style::default().fg(BORDER)),
+                ),
+            button,
+        );
+    }
+    if status_height > 0
+        && let Some(message) = app.library_message.as_deref()
+    {
+        frame.render_widget(
+            Paragraph::new(message)
+                .style(Style::default().fg(if message.starts_with("Could not") {
+                    ACCENT
+                } else {
+                    TEXT
+                }))
+                .alignment(Alignment::Center),
             Rect::new(
-                content.x + 1,
-                list_area.bottom() + 1,
-                width.saturating_sub(2),
-                2,
+                content.x,
+                content.bottom().saturating_sub(footer_height + 1),
+                width,
+                1,
             ),
         );
     }
@@ -237,13 +257,12 @@ fn render_library(frame: &mut Frame, app: &App) {
         Paragraph::new(keys).alignment(Alignment::Center),
         Rect::new(
             content.x,
-            content
-                .bottom()
-                .saturating_sub(footer_height.min(content.height)),
+            content.bottom().saturating_sub(footer_height),
             width,
-            footer_height.min(content.height),
+            footer_height,
         ),
     );
+    button
 }
 
 fn render_game(frame: &mut Frame, app: &App) {
@@ -318,6 +337,7 @@ mod tests {
     use crate::{GameRegistry, InstalledGame};
     use arcadium_sdk::GameMetadata;
     use ratatui::{Terminal, backend::TestBackend};
+    use std::path::PathBuf;
 
     fn app(count: usize) -> App {
         let mut registry = GameRegistry::new();
@@ -335,12 +355,16 @@ mod tests {
                 "game.wasm".into(),
             ));
         }
-        App::new(registry)
+        App::new(registry, PathBuf::new(), PathBuf::new())
     }
 
     fn draw(app: &App, width: u16, height: u16) -> String {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        terminal.draw(|frame| render(frame, app)).unwrap();
+        terminal
+            .draw(|frame| {
+                render(frame, app);
+            })
+            .unwrap();
         terminal
             .backend()
             .buffer()
@@ -379,7 +403,11 @@ mod tests {
     #[test]
     fn arcadium_wordmark_uses_the_platform_accent() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        terminal.draw(|frame| render(frame, &app(2))).unwrap();
+        terminal
+            .draw(|frame| {
+                render(frame, &app(2));
+            })
+            .unwrap();
         assert!(
             terminal
                 .backend()
@@ -391,13 +419,63 @@ mod tests {
     }
 
     #[test]
+    fn library_status_renders_without_breaking_small_layouts() {
+        let mut library = app(1);
+        library.library_message = Some("Installed \"New Game\".".into());
+        assert!(draw(&library, 80, 24).contains("Installed \"New Game\"."));
+        for width in 0..20 {
+            for height in 0..12 {
+                draw(&library, width, height);
+            }
+        }
+    }
+
+    #[test]
+    fn install_button_is_visible_below_library_and_has_a_click_area() {
+        let library = app(1);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut button = None;
+        terminal
+            .draw(|frame| button = render(frame, &library))
+            .unwrap();
+        let button = button.unwrap();
+        let buffer = terminal.backend().buffer();
+        let label: String = (button.x..button.right())
+            .map(|x| buffer[(x, button.y + 1)].symbol())
+            .collect();
+        assert!(label.contains("Install new game"));
+        assert_eq!(buffer[(button.x, button.y)].fg, BORDER);
+        assert_ne!(buffer[(button.x, button.y + 1)].bg, ACCENT);
+        assert!(!draw(&library, 80, 24).contains("A short game description."));
+        let unfocused_border = buffer[(button.x, button.y)].symbol().to_owned();
+        let mut focused = app(1);
+        focused.install_focused = true;
+        terminal
+            .draw(|frame| {
+                render(frame, &focused);
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(button.x + 1, button.y + 1)].fg, TEXT);
+        assert_ne!(buffer[(button.x, button.y)].symbol(), unfocused_border);
+    }
+
+    #[test]
     fn menu_and_game_controls_use_orange_buttons_on_the_dark_background() {
         for (width, height) in [(80, 24), (40, 12), (26, 10)] {
             let library = app(2);
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-            terminal.draw(|frame| render(frame, &library)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(frame, &library);
+                })
+                .unwrap();
             let buffer = terminal.backend().buffer();
-            for (button, action) in [("[Enter]", "Play"), ("[Q]", "Exit")] {
+            for (button, action) in [
+                ("[Enter]", "Play"),
+                ("[I]", "Install Game"),
+                ("[Q]", "Exit"),
+            ] {
                 let length = button.chars().count();
                 let start = buffer
                     .content
@@ -429,7 +507,11 @@ mod tests {
             }
             let mut game = app(1);
             game.mode = AppMode::Playing;
-            terminal.draw(|frame| render(frame, &game)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render(frame, &game);
+                })
+                .unwrap();
             let buffer = terminal.backend().buffer();
             assert!(!buffer.content.windows(5).any(|cells| {
                 cells.iter().map(|cell| cell.symbol()).collect::<String>() == "[Esc]"

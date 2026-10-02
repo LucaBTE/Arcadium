@@ -10,7 +10,13 @@ impl GameRegistry {
     }
 
     pub fn register(&mut self, game: InstalledGame) {
-        self.games.push(game);
+        if !self
+            .games
+            .iter()
+            .any(|existing| existing.metadata.id == game.metadata.id)
+        {
+            self.games.push(game);
+        }
     }
 
     pub fn get(&self, index: usize) -> Option<&InstalledGame> {
