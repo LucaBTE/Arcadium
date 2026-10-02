@@ -1,6 +1,10 @@
 # Arcadium
 Arcade cabinet in your terminal. Completely extendible.
 
+## Create a Game
+
+Want to build your own Arcadium game? See the [game creation guide](docs/creating-games.md).
+
 ## WASM host API
 
 Games export `arcadium_init() -> i32` (zero means failure),
