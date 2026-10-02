@@ -6,7 +6,10 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap},
 };
 
-use crate::{app::App, mode::AppMode};
+use crate::{
+    app::{App, LibraryAction, LibraryActions},
+    mode::AppMode,
+};
 
 const BACKGROUND: Color = Color::Rgb(14, 16, 29);
 const PANEL: Color = Color::Rgb(24, 26, 42);
@@ -71,7 +74,7 @@ fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
     }
 }
 
-pub fn render(frame: &mut Frame, app: &App) -> Option<Rect> {
+pub fn render(frame: &mut Frame, app: &App) -> LibraryActions {
     let area = frame.area();
     frame
         .buffer_mut()
@@ -80,7 +83,7 @@ pub fn render(frame: &mut Frame, app: &App) -> Option<Rect> {
         AppMode::Library => render_library(frame, app),
         AppMode::Playing => {
             render_game(frame, app);
-            None
+            LibraryActions::default()
         }
     }
 }
@@ -121,7 +124,7 @@ fn shortcut_rows<'a>(items: &[(&'a str, &'a str)], width: u16) -> Vec<Line<'a>> 
     rows
 }
 
-fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
+fn render_library(frame: &mut Frame, app: &App) -> LibraryActions {
     let area = frame.area();
     if area.width < 20 || area.height < 7 {
         frame.render_widget(
@@ -130,22 +133,31 @@ fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
                 .alignment(Alignment::Center),
             Rect::new(area.x, area.y + area.height / 2, area.width, 1),
         );
-        return None;
+        return LibraryActions::default();
     }
     let width = area.width.saturating_sub(4).min(72);
     let large_wordmark = width >= WORDMARK_WIDTH && area.height >= 22;
     let header_height = if large_wordmark { 8 } else { 2 };
     let items: &[(&str, &str)] = if app.game_count() == 0 {
-        &[("I", "Install Game"), ("Q", "Exit")]
+        &[
+            ("I", "Install Game"),
+            ("C", "Create Your Own"),
+            ("Q", "Exit"),
+        ]
     } else {
-        &[("Enter", "Play"), ("I", "Install Game"), ("Q", "Exit")]
+        &[
+            ("Enter", "Play"),
+            ("I", "Install Game"),
+            ("C", "Create Your Own"),
+            ("Q", "Exit"),
+        ]
     };
     let keys = shortcut_rows(items, width);
     let footer_height = keys.len() as u16;
-    let status_height = u16::from(app.library_message.is_some() && area.height >= 12);
+    let status_height = 3 * u16::from(app.library_message.is_some() && area.height >= 12);
     let row_height = if area.height >= 18 { 3 } else { 1 };
     let show_button =
-        width >= 20 && area.height >= header_height + footer_height + status_height + 9;
+        width >= 42 && area.height >= header_height + footer_height + status_height + 11;
     let details_height = if show_button { 5 } else { 0 };
     let available = area
         .height
@@ -173,6 +185,7 @@ fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
         .border_type(BorderType::Rounded)
         .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(PANEL));
+    let mut game_list = None;
     if app.game_count() == 0 {
         frame.render_widget(
             Paragraph::new("No games installed")
@@ -186,7 +199,7 @@ fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
             .games()
             .enumerate()
             .map(|(index, game)| {
-                let selected = !app.install_focused && index == app.selected_game;
+                let selected = app.focused_action.is_none() && index == app.selected_game;
                 let name = Line::from(vec![
                     Span::styled(
                         if selected { "  ❯  " } else { "     " },
@@ -207,38 +220,65 @@ fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
         let list = List::new(items)
             .block(block)
             .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-        let mut state =
-            ListState::default().with_selected((!app.install_focused).then_some(app.selected_game));
+        let mut state = ListState::default()
+            .with_selected(app.focused_action.is_none().then_some(app.selected_game));
         frame.render_stateful_widget(list, list_area, &mut state);
+        if list_area.width > 2 && list_area.height > 2 {
+            game_list = Some((
+                Rect::new(list_area.x + 1, list_area.y + 1, width - 2, list_height - 2),
+                state.offset(),
+                row_height,
+            ));
+        }
     }
-    let button = show_button.then(|| Rect::new(content.x, list_area.bottom() + 1, 18, 3));
-    if let Some(button) = button {
-        frame.render_widget(
-            Paragraph::new("Install new game")
-                .alignment(Alignment::Center)
-                .style(
-                    Style::default()
-                        .fg(if app.install_focused { TEXT } else { MUTED })
-                        .bg(PANEL),
-                )
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_type(if app.install_focused {
-                            BorderType::Double
-                        } else {
-                            BorderType::Rounded
-                        })
-                        .border_style(Style::default().fg(BORDER)),
-                ),
-            button,
-        );
+    let mut actions = LibraryActions {
+        game_list,
+        ..LibraryActions::default()
+    };
+    if show_button {
+        let start = content.x + (width - 42) / 2;
+        let y = list_area.bottom() + 1;
+        actions.install = Some(Rect::new(start, y, 18, 3));
+        actions.create = Some(Rect::new(start + 20, y, 22, 3));
+    }
+    for (rect, label, action) in [
+        (actions.install, "Install new game", LibraryAction::Install),
+        (
+            actions.create,
+            "Create your own game",
+            LibraryAction::Create,
+        ),
+    ] {
+        if let Some(rect) = rect {
+            let focused = app.focused_action == Some(action);
+            frame.render_widget(
+                Paragraph::new(label)
+                    .alignment(Alignment::Center)
+                    .style(
+                        Style::default()
+                            .fg(if focused { TEXT } else { MUTED })
+                            .bg(PANEL),
+                    )
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .border_type(if focused {
+                                BorderType::Double
+                            } else {
+                                BorderType::Rounded
+                            })
+                            .border_style(Style::default().fg(BORDER)),
+                    ),
+                rect,
+            );
+        }
     }
     if status_height > 0
         && let Some(message) = app.library_message.as_deref()
     {
         frame.render_widget(
             Paragraph::new(message)
+                .wrap(Wrap { trim: false })
                 .style(Style::default().fg(if message.starts_with("Could not") {
                     ACCENT
                 } else {
@@ -247,22 +287,29 @@ fn render_library(frame: &mut Frame, app: &App) -> Option<Rect> {
                 .alignment(Alignment::Center),
             Rect::new(
                 content.x,
-                content.bottom().saturating_sub(footer_height + 1),
+                content
+                    .bottom()
+                    .saturating_sub(footer_height + status_height),
                 width,
-                1,
+                status_height,
             ),
         );
     }
-    frame.render_widget(
-        Paragraph::new(keys).alignment(Alignment::Center),
-        Rect::new(
-            content.x,
-            content.bottom().saturating_sub(footer_height),
-            width,
-            footer_height,
-        ),
+    let footer = Rect::new(
+        content.x,
+        content.bottom().saturating_sub(footer_height),
+        width,
+        footer_height,
     );
-    button
+    let last_row_width = keys.last().map_or(0, Line::width) as u16;
+    actions.exit = Some(Rect::new(
+        footer.x + (width - last_row_width) / 2 + last_row_width - 8,
+        footer.bottom() - 1,
+        8,
+        1,
+    ));
+    frame.render_widget(Paragraph::new(keys).alignment(Alignment::Center), footer);
+    actions
 }
 
 fn render_game(frame: &mut Frame, app: &App) {
@@ -431,25 +478,40 @@ mod tests {
     }
 
     #[test]
-    fn install_button_is_visible_below_library_and_has_a_click_area() {
+    fn library_actions_have_distinct_click_areas() {
         let library = app(1);
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
-        let mut button = None;
+        let mut button = LibraryActions::default();
         terminal
             .draw(|frame| button = render(frame, &library))
             .unwrap();
-        let button = button.unwrap();
+        assert!(button.game_list.is_some());
+        assert!(button.exit.is_some());
+        let exit = button.exit.unwrap();
+        let create = button.create.unwrap();
+        let button = button.install.unwrap();
+        assert!(!button.intersects(create));
+        assert_eq!(button.y, create.y);
+        assert_eq!(button.right() + 2, create.x);
         let buffer = terminal.backend().buffer();
+        let exit_label: String = (exit.x..exit.right())
+            .map(|x| buffer[(x, exit.y)].symbol())
+            .collect();
+        assert_eq!(exit_label, "[Q] Exit");
         let label: String = (button.x..button.right())
             .map(|x| buffer[(x, button.y + 1)].symbol())
             .collect();
         assert!(label.contains("Install new game"));
+        let create_label: String = (create.x..create.right())
+            .map(|x| buffer[(x, create.y + 1)].symbol())
+            .collect();
+        assert!(create_label.contains("Create your own game"));
         assert_eq!(buffer[(button.x, button.y)].fg, BORDER);
         assert_ne!(buffer[(button.x, button.y + 1)].bg, ACCENT);
         assert!(!draw(&library, 80, 24).contains("A short game description."));
         let unfocused_border = buffer[(button.x, button.y)].symbol().to_owned();
         let mut focused = app(1);
-        focused.install_focused = true;
+        focused.focused_action = Some(LibraryAction::Install);
         terminal
             .draw(|frame| {
                 render(frame, &focused);
@@ -458,6 +520,21 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(button.x + 1, button.y + 1)].fg, TEXT);
         assert_ne!(buffer[(button.x, button.y)].symbol(), unfocused_border);
+    }
+
+    #[test]
+    fn scrolled_game_click_area_uses_visible_list_offset() {
+        let mut library = app(50);
+        library.selected_game = 49;
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut actions = LibraryActions::default();
+        terminal
+            .draw(|frame| actions = render(frame, &library))
+            .unwrap();
+        let (area, first, row_height) = actions.game_list.unwrap();
+        assert!(first > 0 && first <= 49);
+        assert_eq!(row_height, 3);
+        assert!(area.height >= row_height);
     }
 
     #[test]
@@ -474,6 +551,7 @@ mod tests {
             for (button, action) in [
                 ("[Enter]", "Play"),
                 ("[I]", "Install Game"),
+                ("[C]", "Create Your Own"),
                 ("[Q]", "Exit"),
             ] {
                 let length = button.chars().count();

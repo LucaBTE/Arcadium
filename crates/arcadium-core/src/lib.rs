@@ -27,9 +27,13 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     io::{self, stdout},
     path::PathBuf,
+    process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
+
+const DEVELOPER_GUIDE_URL: &str =
+    "https://github.com/LucaBTE/Arcadium/blob/main/docs/creating-games.md";
 
 pub fn run(
     registry: GameRegistry,
@@ -71,7 +75,8 @@ fn run_app(
 
     let frame_duration = Duration::from_secs_f64(1.0 / 60.0);
     let mut previous_frame = Instant::now();
-    let mut install_button = None;
+    let mut actions = app::LibraryActions::default();
+    let mut guide_processes = Vec::new();
     while !app.should_quit {
         let frame_start = Instant::now();
         let delta_seconds = frame_start.duration_since(previous_frame).as_secs_f32();
@@ -81,15 +86,44 @@ fn run_app(
         let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
         let surface = ui::game_surface(area);
         app.begin_frame(surface.width, surface.height);
-        app.handle_events(surface.width, surface.height, install_button)?;
+        app.handle_events(surface.width, surface.height, actions)?;
         if app.take_install_request() {
             if let Some(path) = select_adm_file(terminal)? {
                 app.install_selected_file(&path);
             }
             previous_frame = Instant::now();
         }
+        let mut guide_failed = false;
+        if app.take_guide_request() {
+            match Command::new("xdg-open")
+                .arg(DEVELOPER_GUIDE_URL)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+            {
+                Ok(child) => guide_processes.push(child),
+                Err(_) => guide_failed = true,
+            }
+        }
+        guide_processes.retain_mut(|child| match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(status)) => {
+                guide_failed |= !status.success();
+                false
+            }
+            Err(_) => {
+                guide_failed = true;
+                false
+            }
+        });
+        if guide_failed {
+            app.library_message = Some(format!(
+                "Could not open browser. Guide:\n{DEVELOPER_GUIDE_URL}"
+            ));
+        }
         app.update(delta_seconds);
-        terminal.draw(|frame| install_button = ui::render(frame, &app))?;
+        terminal.draw(|frame| actions = ui::render(frame, &app))?;
         thread::sleep(frame_duration.saturating_sub(frame_start.elapsed()));
     }
 
