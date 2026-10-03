@@ -17,20 +17,16 @@ const ACCENT: Color = Color::Rgb(255, 115, 56);
 const TEXT: Color = Color::Rgb(244, 231, 211);
 const MUTED: Color = Color::Rgb(169, 158, 148);
 const BORDER: Color = Color::Rgb(104, 64, 47);
-const SHADOW: Color = Color::Rgb(112, 43, 30);
 
-// Five-row letterforms for the ARCADIUM wordmark.
-const WORDMARK: [[u8; 5]; 8] = [
-    [14, 17, 31, 17, 17],
-    [30, 17, 30, 18, 17],
-    [15, 16, 16, 16, 15],
-    [14, 17, 31, 17, 17],
-    [30, 17, 17, 17, 30],
-    [31, 4, 4, 4, 31],
-    [17, 17, 17, 17, 14],
-    [17, 27, 21, 17, 17],
+const WORDMARK: [&str; 6] = [
+    "░█████╗░██████╗░░█████╗░░█████╗░██████╗░██╗██╗░░░██╗███╗░░░███╗",
+    "██╔══██╗██╔══██╗██╔══██╗██╔══██╗██╔══██╗██║██║░░░██║████╗░████║",
+    "███████║██████╔╝██║░░╚═╝███████║██║░░██║██║██║░░░██║██╔████╔██║",
+    "██╔══██║██╔══██╗██║░░██╗██╔══██║██║░░██║██║██║░░░██║██║╚██╔╝██║",
+    "██║░░██║██║░░██║╚█████╔╝██║░░██║██████╔╝██║╚██████╔╝██║░╚═╝░██║",
+    "╚═╝░░╚═╝╚═╝░░╚═╝░╚════╝░╚═╝░░╚═╝╚═════╝░╚═╝░╚═════╝░╚═╝░░░░░╚═╝",
 ];
-const WORDMARK_WIDTH: u16 = 54;
+const WORDMARK_WIDTH: u16 = 63;
 
 fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
     if !large {
@@ -43,33 +39,12 @@ fn render_wordmark(frame: &mut Frame, area: Rect, large: bool) {
         return;
     }
     let start = area.x + (area.width - WORDMARK_WIDTH) / 2;
-    for (letter, rows) in WORDMARK.iter().enumerate() {
-        for (row, bits) in rows.iter().enumerate() {
-            for column in 0..5 {
-                if bits & (1 << (4 - column)) != 0
-                    && start + letter as u16 * 7 + column + 1 < area.right()
-                    && area.y + row as u16 + 1 < area.bottom()
-                {
-                    frame.buffer_mut()[(
-                        start + letter as u16 * 7 + column + 1,
-                        area.y + row as u16 + 1,
-                    )]
-                        .set_char('▓')
-                        .set_fg(SHADOW);
-                }
-            }
-        }
-    }
-    for (letter, rows) in WORDMARK.iter().enumerate() {
-        for (row, bits) in rows.iter().enumerate() {
-            for column in 0..5 {
-                if bits & (1 << (4 - column)) != 0 {
-                    frame.buffer_mut()[(start + letter as u16 * 7 + column, area.y + row as u16)]
-                        .set_char('▓')
-                        .set_fg(ACCENT)
-                        .set_style(Style::default().add_modifier(Modifier::BOLD));
-                }
-            }
+    for (row, line) in WORDMARK.iter().enumerate() {
+        for (column, character) in line.chars().enumerate() {
+            frame.buffer_mut()[(start + column as u16, area.y + row as u16)]
+                .set_char(character)
+                .set_fg(ACCENT)
+                .set_style(Style::default().add_modifier(Modifier::BOLD));
         }
     }
 }
@@ -455,14 +430,19 @@ mod tests {
                 render(frame, &app(2));
             })
             .unwrap();
-        assert!(
-            terminal
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .any(|cell| cell.symbol() == "▓" && cell.fg == ACCENT)
-        );
+        let buffer = terminal.backend().buffer();
+        let start = buffer
+            .content
+            .iter()
+            .position(|cell| cell.symbol() == "░" && cell.fg == ACCENT)
+            .unwrap();
+        for (row, line) in WORDMARK.iter().enumerate() {
+            for (column, character) in line.chars().enumerate() {
+                let cell = &buffer.content[start + row * 80 + column];
+                assert_eq!(cell.symbol(), character.to_string());
+                assert_eq!(cell.fg, ACCENT);
+            }
+        }
     }
 
     #[test]
