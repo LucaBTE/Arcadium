@@ -3,6 +3,7 @@ mod discovery;
 mod host;
 mod installed_game;
 mod installer;
+mod limits;
 mod mode;
 pub mod paths;
 mod registry;

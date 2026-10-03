@@ -9,7 +9,11 @@ use arcadium_sdk::{AdmManifest, SDK_VERSION};
 
 use zip::ZipArchive;
 
-use crate::{installed_game::InstalledGame, registry::GameRegistry};
+use crate::{
+    installed_game::InstalledGame,
+    limits::{MAX_ADM_BYTES, MAX_MANIFEST_BYTES, MAX_WASM_BYTES},
+    registry::GameRegistry,
+};
 
 const MANIFEST_FILE: &str = "manifest.toml";
 
@@ -82,6 +86,9 @@ pub fn discover_games(bundled_directory: &Path, user_directory: &Path) -> io::Re
 
 pub(crate) fn load_adm_package(path: &Path) -> Result<InstalledGame, Box<dyn Error>> {
     let file = File::open(path)?;
+    if file.metadata()?.len() > MAX_ADM_BYTES {
+        return Err(invalid_data("ADM package exceeds the 16 MiB limit.").into());
+    }
 
     let mut archive = ZipArchive::new(file)?;
 
@@ -91,7 +98,7 @@ pub(crate) fn load_adm_package(path: &Path) -> Result<InstalledGame, Box<dyn Err
 
     validate_manifest(&manifest)?;
 
-    validate_entry_exists(&mut archive, &manifest.arcadium.entry)?;
+    validate_entry_size(&mut archive, &manifest.arcadium.entry)?;
 
     let metadata = manifest.metadata();
 
@@ -107,6 +114,9 @@ fn read_manifest(archive: &mut ZipArchive<File>) -> Result<String, Box<dyn Error
     let mut manifest_file = archive
         .by_name(MANIFEST_FILE)
         .map_err(|_| invalid_data("ADM package is missing manifest.toml"))?;
+    if manifest_file.size() > MAX_MANIFEST_BYTES {
+        return Err(invalid_data("Manifest exceeds the 64 KiB limit.").into());
+    }
 
     let mut content = String::new();
 
@@ -176,17 +186,17 @@ fn validate_entry_path(entry: &str) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn validate_entry_exists(
-    archive: &mut ZipArchive<File>,
-    entry: &str,
-) -> Result<(), Box<dyn Error>> {
-    archive.by_name(entry).map_err(|_| {
+fn validate_entry_size(archive: &mut ZipArchive<File>, entry: &str) -> Result<(), Box<dyn Error>> {
+    let wasm_file = archive.by_name(entry).map_err(|_| {
         invalid_data(format!(
             "ADM package declares entry '{}', \
                      but the file does not exist",
             entry
         ))
     })?;
+    if wasm_file.size() > MAX_WASM_BYTES {
+        return Err(invalid_data("WASM entry exceeds the 8 MiB limit.").into());
+    }
 
     Ok(())
 }
