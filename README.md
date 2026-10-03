@@ -5,6 +5,33 @@ Arcade cabinet in your terminal. Completely extendible.
 
 Want to build your own Arcadium game? See the [game creation guide](docs/creating-games.md).
 
+## Installation
+
+Arcadium supports Linux and macOS (Apple Silicon and Intel). A release bundle uses
+this layout: `arcadium`, `install.sh`, and `bundled-games/` containing the official
+`.adm` packages. From the extracted bundle, run:
+
+```sh
+./install.sh
+arcadium
+```
+
+The installer copies the executable to `~/.local/bin/arcadium` and keeps user
+games and scores on updates. `~/.local/bin` must be in your PATH; if it is not,
+the installer prints a command to add it. It does not edit shell configuration.
+
+Linux stores data under `$XDG_DATA_HOME/arcadium` when set, otherwise
+`~/.local/share/arcadium`. macOS stores data under
+`~/Library/Application Support/Arcadium`. Each data directory contains separate
+`bundled-games/`, `games/`, and `scores/` directories (scores are created when
+first saved).
+
+For repository development, use the bundled game override from the repository root:
+
+```sh
+ARCADIUM_BUNDLED_GAMES_DIR="$PWD/bundled-games" cargo run -p arcadium-cli
+```
+
 ## WASM host API
 
 Games export `arcadium_init() -> i32` (zero means failure),
@@ -49,8 +76,8 @@ to Arcadium and shuts down the game before returning to the library.
 
 `load_score` reads the game's saved score, returning zero if none exists.
 `save_score` accepts a nonnegative `u32` value and returns 1 on success or 0
-on failure. Scores are stored separately for each game ID under
-`$XDG_DATA_HOME/arcadium/scores/` (or `~/.local/share/arcadium/scores/`).
+on failure. Scores are stored separately for each game ID in the platform data
+directory's `scores/` subdirectory.
 Games should save when the score improves, so it survives an unexpected close.
 `request_exit` ends the current guest after its update and returns to the library.
 
@@ -69,7 +96,7 @@ rustup target add wasm32-unknown-unknown
 bash adm-build/test_game/build.sh
 mkdir -p /tmp/arcadium-test-data/arcadium/games
 cp adm-build/test_game/host-test.adm /tmp/arcadium-test-data/arcadium/games/
-XDG_DATA_HOME=/tmp/arcadium-test-data cargo run -p arcadium-cli
+XDG_DATA_HOME=/tmp/arcadium-test-data ARCADIUM_BUNDLED_GAMES_DIR="$PWD/bundled-games" cargo run -p arcadium-cli
 ```
 
 Select **Host API Test** and press ENTER. LEFT/RIGHT move `@`; resize the terminal
@@ -91,7 +118,7 @@ Build and package it from the repository root with Rust's
 
 ```bash
 bash games/pong/build.sh
-cargo run -p arcadium-cli
+ARCADIUM_BUNDLED_GAMES_DIR="$PWD/bundled-games" cargo run -p arcadium-cli
 ```
 
 The script builds `games/pong/target/wasm32-unknown-unknown/release/pong.wasm`
@@ -134,7 +161,7 @@ ZIP package (`manifest.toml` and `game.wasm`):
 
 ```bash
 bash games/tictactoe/build.sh
-cargo run -p arcadium-cli
+ARCADIUM_BUNDLED_GAMES_DIR="$PWD/bundled-games" cargo run -p arcadium-cli
 ```
 
 Select **Tic Tac Toe** in the library and press ENTER. Choose **1P**

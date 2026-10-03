@@ -1,4 +1,6 @@
-use std::{env, fs, path::PathBuf};
+use std::{fs, io, path::PathBuf};
+
+use crate::paths;
 
 pub(crate) struct ScoreStore {
     path: PathBuf,
@@ -10,22 +12,15 @@ impl ScoreStore {
         Self { path }
     }
 
-    pub(crate) fn for_game(id: &str) -> Self {
-        let root = if let Ok(path) = env::var("XDG_DATA_HOME") {
-            PathBuf::from(path)
-        } else if let Ok(home) = env::var("HOME") {
-            PathBuf::from(home).join(".local/share")
-        } else {
-            PathBuf::from("arcadium-data")
-        };
+    pub(crate) fn for_game(id: &str) -> io::Result<Self> {
         // Encode the manifest ID so a game cannot use path separators in its save name.
         let name = id
             .bytes()
             .map(|byte| format!("{byte:02x}"))
             .collect::<String>();
-        Self {
-            path: root.join("arcadium/scores").join(name),
-        }
+        Ok(Self {
+            path: paths::scores_directory()?.join(name),
+        })
     }
 
     pub(crate) fn load(&self) -> u32 {
@@ -62,6 +57,16 @@ impl ScoreStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+
+    #[test]
+    fn score_path_uses_centralized_directory_and_encodes_id() {
+        let store = ScoreStore::for_game("a/b").unwrap();
+        assert_eq!(
+            store.path,
+            paths::scores_directory().unwrap().join("612f62")
+        );
+    }
 
     #[test]
     fn score_survives_reopening_and_invalid_data_defaults_to_zero() {
