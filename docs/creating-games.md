@@ -193,6 +193,8 @@ zip my-game.adm manifest.toml game.wasm
 
 The ADM needs at least those two root-level files. See `games/*/build.sh` for complete bundled packaging examples.
 
+Games should return promptly from each lifecycle call and should not assume unbounded memory.
+
 ## 13. Install and test
 
 1. Launch Arcadium.

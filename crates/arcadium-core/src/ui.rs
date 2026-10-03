@@ -322,7 +322,9 @@ fn render_game(frame: &mut Frame, app: &App) {
         }
     } else {
         let message = app.runtime_message.as_deref().unwrap_or("");
-        let reason = if message.contains("Expected arcadium_") {
+        let reason = if message.contains("Game exceeded execution budget.") {
+            "Game exceeded execution budget."
+        } else if message.contains("Expected arcadium_") {
             "This game needs an update."
         } else {
             "Return to the library and try again."
@@ -587,6 +589,8 @@ mod tests {
         assert!(text.contains("This game needs an update."));
         assert!(!text.contains("[Esc] Library"));
         assert!(!text.contains("arcadium_update"));
+        game.runtime_message = Some("Game runtime error: Game exceeded execution budget.".into());
+        assert!(draw(&game, 80, 24).contains("Game exceeded execution budget."));
         for width in 0..4 {
             for height in 0..4 {
                 draw(&game, width, height);

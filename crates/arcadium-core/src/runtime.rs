@@ -4,29 +4,59 @@ use std::{
     io::{self, Read},
 };
 
-use wasmtime::{Caller, Engine, Linker, Module, Store, TypedFunc};
+use wasmtime::{
+    Caller, Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder, Trap, TypedFunc,
+};
 
 use zip::ZipArchive;
 
-use crate::{host::HostState, installed_game::InstalledGame, score_store::ScoreStore};
+use crate::{
+    host::HostState,
+    installed_game::InstalledGame,
+    limits::{GUEST_FUEL, MAX_ADM_BYTES, MAX_GUEST_MEMORY_BYTES, MAX_WASM_BYTES},
+    score_store::ScoreStore,
+};
 
 const INIT_EXPORT: &str = "arcadium_init";
 const UPDATE_EXPORT: &str = "arcadium_update";
 const SHUTDOWN_EXPORT: &str = "arcadium_shutdown";
 
 pub struct GameRuntime {
-    store: Store<HostState>,
+    store: Store<RuntimeState>,
 
     init: TypedFunc<(), i32>,
     update: TypedFunc<f32, ()>,
     shutdown: TypedFunc<(), ()>,
 }
 
+struct RuntimeState {
+    host: HostState,
+    limits: StoreLimits,
+}
+
+fn create_engine() -> Result<Engine, wasmtime::Error> {
+    let mut config = Config::new();
+    config.consume_fuel(true);
+    Engine::new(&config)
+}
+
+fn prepare_guest_call(store: &mut Store<RuntimeState>) -> Result<(), wasmtime::Error> {
+    store.set_fuel(GUEST_FUEL)
+}
+
+fn guest_error(error: wasmtime::Error) -> Box<dyn Error> {
+    if matches!(error.downcast_ref::<Trap>(), Some(Trap::OutOfFuel)) {
+        invalid_data("Game exceeded execution budget.").into()
+    } else {
+        error.into()
+    }
+}
+
 impl GameRuntime {
     pub fn load(game: &InstalledGame) -> Result<Self, Box<dyn Error>> {
         let wasm_bytes = read_wasm_from_package(game)?;
 
-        let engine = Engine::default();
+        let engine = create_engine()?;
 
         let module = Module::from_binary(&engine, &wasm_bytes)?;
 
@@ -34,34 +64,49 @@ impl GameRuntime {
         runtime
             .store
             .data_mut()
+            .host
             .set_score_store(ScoreStore::for_game(&game.metadata.id)?);
         Ok(runtime)
     }
 
     fn instantiate(engine: &Engine, module: &Module) -> Result<Self, Box<dyn Error>> {
-        let mut store = Store::new(engine, HostState::default());
+        let limits = StoreLimitsBuilder::new()
+            .memory_size(MAX_GUEST_MEMORY_BYTES)
+            .memories(1)
+            .instances(1)
+            .trap_on_grow_failure(true)
+            .build();
+        let mut store = Store::new(
+            engine,
+            RuntimeState {
+                host: HostState::default(),
+                limits,
+            },
+        );
+        store.limiter(|state| &mut state.limits);
+        prepare_guest_call(&mut store)?;
         let mut linker = Linker::new(engine);
         linker.func_wrap(
             "arcadium",
             "screen_width",
-            |caller: Caller<'_, HostState>| i32::from(caller.data().width()),
+            |caller: Caller<'_, RuntimeState>| i32::from(caller.data().host.width()),
         )?;
         linker.func_wrap(
             "arcadium",
             "screen_height",
-            |caller: Caller<'_, HostState>| i32::from(caller.data().height()),
+            |caller: Caller<'_, RuntimeState>| i32::from(caller.data().host.height()),
         )?;
         linker.func_wrap(
             "arcadium",
             "draw_char",
-            |mut caller: Caller<'_, HostState>, x: i32, y: i32, character: i32| {
-                caller.data_mut().draw_char(x, y, character);
+            |mut caller: Caller<'_, RuntimeState>, x: i32, y: i32, character: i32| {
+                caller.data_mut().host.draw_char(x, y, character);
             },
         )?;
         linker.func_wrap(
             "arcadium",
             "draw_cell",
-            |mut caller: Caller<'_, HostState>,
+            |mut caller: Caller<'_, RuntimeState>,
              x: i32,
              y: i32,
              character: i32,
@@ -69,26 +114,33 @@ impl GameRuntime {
              background: i32| {
                 caller
                     .data_mut()
+                    .host
                     .draw_cell(x, y, character, foreground, background);
             },
         )?;
         linker.func_wrap(
             "arcadium",
             "key_pressed",
-            |caller: Caller<'_, HostState>, key: i32| i32::from(caller.data().key_pressed(key)),
+            |caller: Caller<'_, RuntimeState>, key: i32| {
+                i32::from(caller.data().host.key_pressed(key))
+            },
         )?;
-        linker.func_wrap("arcadium", "load_score", |caller: Caller<'_, HostState>| {
-            caller.data().load_score()
-        })?;
+        linker.func_wrap(
+            "arcadium",
+            "load_score",
+            |caller: Caller<'_, RuntimeState>| caller.data().host.load_score(),
+        )?;
         linker.func_wrap(
             "arcadium",
             "save_score",
-            |caller: Caller<'_, HostState>, score: i64| i32::from(caller.data().save_score(score)),
+            |caller: Caller<'_, RuntimeState>, score: i64| {
+                i32::from(caller.data().host.save_score(score))
+            },
         )?;
         linker.func_wrap(
             "arcadium",
             "request_exit",
-            |mut caller: Caller<'_, HostState>| caller.data_mut().request_exit(),
+            |mut caller: Caller<'_, RuntimeState>| caller.data_mut().host.request_exit(),
         )?;
         let instance = linker.instantiate(&mut store, module)?;
         let init = instance
@@ -114,39 +166,46 @@ impl GameRuntime {
     }
 
     pub fn resize(&mut self, width: u16, height: u16) {
-        self.store.data_mut().resize(width, height);
+        self.store.data_mut().host.resize(width, height);
     }
 
     pub fn begin_frame(&mut self) {
-        self.store.data_mut().begin_frame();
+        self.store.data_mut().host.begin_frame();
     }
 
     pub fn press_key(&mut self, key: i32) {
-        self.store.data_mut().press_key(key);
+        self.store.data_mut().host.press_key(key);
     }
 
     pub fn screen(&self) -> &HostState {
-        self.store.data()
+        &self.store.data().host
     }
 
     pub fn exit_requested(&self) -> bool {
-        self.store.data().exit_requested()
+        self.store.data().host.exit_requested()
     }
 
     pub fn init(&mut self) -> Result<i32, Box<dyn Error>> {
-        let result = self.init.call(&mut self.store, ())?;
+        prepare_guest_call(&mut self.store)?;
+        let result = self.init.call(&mut self.store, ()).map_err(guest_error)?;
 
         Ok(result)
     }
 
     pub fn update(&mut self, delta_seconds: f32) -> Result<(), Box<dyn Error>> {
-        self.update.call(&mut self.store, delta_seconds)?;
+        prepare_guest_call(&mut self.store)?;
+        self.update
+            .call(&mut self.store, delta_seconds)
+            .map_err(guest_error)?;
 
         Ok(())
     }
 
     pub fn shutdown(&mut self) -> Result<(), Box<dyn Error>> {
-        self.shutdown.call(&mut self.store, ())?;
+        prepare_guest_call(&mut self.store)?;
+        self.shutdown
+            .call(&mut self.store, ())
+            .map_err(guest_error)?;
 
         Ok(())
     }
@@ -154,6 +213,9 @@ impl GameRuntime {
 
 fn read_wasm_from_package(game: &InstalledGame) -> Result<Vec<u8>, Box<dyn Error>> {
     let file = File::open(&game.source_path)?;
+    if file.metadata()?.len() > MAX_ADM_BYTES {
+        return Err(invalid_data("ADM package exceeds the 16 MiB limit.").into());
+    }
 
     let mut archive = ZipArchive::new(file)?;
 
@@ -163,6 +225,10 @@ fn read_wasm_from_package(game: &InstalledGame) -> Result<Vec<u8>, Box<dyn Error
             game.entry
         ))
     })?;
+
+    if wasm_file.size() > MAX_WASM_BYTES {
+        return Err(invalid_data("WASM entry exceeds the 8 MiB limit.").into());
+    }
 
     let mut wasm_bytes = Vec::new();
 
@@ -185,8 +251,86 @@ mod tests {
     use crate::host::key;
 
     fn runtime(wat: &str) -> Result<GameRuntime, Box<dyn Error>> {
-        let engine = Engine::default();
+        let engine = create_engine()?;
         GameRuntime::instantiate(&engine, &Module::new(&engine, wat)?)
+    }
+
+    fn looping_guest(export: &str) -> String {
+        let loop_body = "(loop $forever (br $forever))";
+        format!(
+            "(module
+                (func (export \"arcadium_init\") (result i32) {} i32.const 1)
+                (func (export \"arcadium_update\") (param f32) {})
+                (func (export \"arcadium_shutdown\") {}))",
+            if export == INIT_EXPORT { loop_body } else { "" },
+            if export == UPDATE_EXPORT {
+                loop_body
+            } else {
+                ""
+            },
+            if export == SHUTDOWN_EXPORT {
+                loop_body
+            } else {
+                ""
+            },
+        )
+    }
+
+    #[test]
+    fn infinite_lifecycle_calls_exhaust_fuel() -> Result<(), Box<dyn Error>> {
+        for export in [INIT_EXPORT, UPDATE_EXPORT, SHUTDOWN_EXPORT] {
+            let mut game = runtime(&looping_guest(export))?;
+            let result = match export {
+                INIT_EXPORT => game.init().map(|_| ()),
+                UPDATE_EXPORT => game.update(0.016),
+                _ => game.shutdown(),
+            };
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "Game exceeded execution budget."
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn fuel_is_reset_for_each_call() -> Result<(), Box<dyn Error>> {
+        let mut game = runtime(
+            "(module
+                (func (export \"arcadium_init\") (result i32) i32.const 1)
+                (func (export \"arcadium_update\") (param f32) nop)
+                (func (export \"arcadium_shutdown\") nop))",
+        )?;
+        game.init()?;
+        for _ in 0..3 {
+            game.store.set_fuel(0)?;
+            game.update(0.016)?;
+        }
+        game.store.set_fuel(0)?;
+        game.shutdown()?;
+        Ok(())
+    }
+
+    #[test]
+    fn excessive_memory_is_rejected() -> Result<(), Box<dyn Error>> {
+        assert!(
+            runtime(
+                "(module (memory 1025)
+                (func (export \"arcadium_init\") (result i32) i32.const 1)
+                (func (export \"arcadium_update\") (param f32))
+                (func (export \"arcadium_shutdown\")))"
+            )
+            .is_err()
+        );
+        let mut game = runtime(
+            "(module (memory 1)
+                (func (export \"arcadium_init\") (result i32) i32.const 1)
+                (func (export \"arcadium_update\") (param f32)
+                    i32.const 1024 memory.grow drop)
+                (func (export \"arcadium_shutdown\")))",
+        )?;
+        assert!(game.update(0.016).is_err());
+        Ok(())
     }
 
     #[test]
@@ -274,6 +418,7 @@ mod tests {
         )?;
         game.store
             .data_mut()
+            .host
             .set_score_store(ScoreStore::at_path(path.clone()));
         game.init()?;
         game.update(0.0)?;

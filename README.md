@@ -84,8 +84,10 @@ Games should save when the score improves, so it survives an unexpected close.
 The loop targets 60 FPS using elapsed wall-clock delta and a remaining-frame
 sleep. Input is drained with non-blocking polling. There is no fixed timestep or
 held-key tracking: repeat frequency depends on the terminal. Guests should account
-for large deltas after stalls. Execution budgets for nonterminating guests are
-not implemented; ordinary WASM traps and incompatible exports become UI errors.
+for large deltas after stalls. Arcadium limits guest execution per lifecycle call,
+guest linear memory, ADM package size, and WASM entry size. Limit violations and
+ordinary WASM traps become UI errors. These limits reduce the impact of malformed
+or runaway WASM guests but are not an OS-level security sandbox.
 
 ## Run the host test guest
 

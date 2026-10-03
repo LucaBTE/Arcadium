@@ -122,7 +122,12 @@ fn invalid_input(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{app::App, discover_games};
+    use crate::{
+        app::App,
+        discover_games,
+        discovery::load_adm_package,
+        limits::{MAX_ADM_BYTES, MAX_MANIFEST_BYTES, MAX_WASM_BYTES},
+    };
     use std::{path::PathBuf, sync::atomic::AtomicU64};
     use zip::{ZipWriter, write::SimpleFileOptions};
 
@@ -198,6 +203,53 @@ mod tests {
         assert!(install_game(&source, &bundled, &user).is_err());
         assert!(!user.exists());
         assert!(discover_games(&bundled, &user).unwrap().is_empty());
+    }
+
+    #[test]
+    fn oversized_adm_is_rejected_before_installation() {
+        let fixture = Fixture::new();
+        let source = fixture.path("huge.adm");
+        let file = fs::File::create(&source).unwrap();
+        file.set_len(MAX_ADM_BYTES + 1).unwrap();
+        let error = load_adm_package(&source).unwrap_err();
+        assert!(error.to_string().contains("ADM package exceeds"));
+        let user = fixture.path("user");
+        assert!(install_game(&source, &fixture.path("bundled"), &user).is_err());
+        assert!(!user.exists());
+    }
+
+    #[test]
+    fn oversized_zip_entries_are_rejected_during_validation() {
+        let fixture = Fixture::new();
+        for (name, manifest_size, wasm_size, expected) in [
+            (
+                "manifest.adm",
+                MAX_MANIFEST_BYTES + 1,
+                4,
+                "Manifest exceeds",
+            ),
+            ("wasm.adm", 120, MAX_WASM_BYTES + 1, "WASM entry exceeds"),
+        ] {
+            let path = fixture.path(name);
+            let file = fs::File::create(&path).unwrap();
+            let mut archive = ZipWriter::new(file);
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+            archive.start_file("manifest.toml", options).unwrap();
+            let manifest = b"[game]\nid = \"large\"\nname = \"Large\"\nauthor = \"Tester\"\nversion = \"1\"\ndescription = \"Test\"\n[arcadium]\nsdk = 1\nentry = \"game.wasm\"\n";
+            archive.write_all(manifest).unwrap();
+            if manifest_size > manifest.len() as u64 {
+                archive
+                    .write_all(&vec![b' '; manifest_size as usize - manifest.len()])
+                    .unwrap();
+            }
+            archive.start_file("game.wasm", options).unwrap();
+            archive.write_all(&vec![0; wasm_size as usize]).unwrap();
+            archive.finish().unwrap();
+            assert!(fs::metadata(&path).unwrap().len() < MAX_ADM_BYTES);
+            let error = load_adm_package(&path).unwrap_err();
+            assert!(error.to_string().contains(expected), "{error}");
+        }
     }
 
     #[test]
