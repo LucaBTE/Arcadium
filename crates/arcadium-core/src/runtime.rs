@@ -34,7 +34,7 @@ impl GameRuntime {
         runtime
             .store
             .data_mut()
-            .set_score_store(ScoreStore::for_game(&game.metadata.id));
+            .set_score_store(ScoreStore::for_game(&game.metadata.id)?);
         Ok(runtime)
     }
 

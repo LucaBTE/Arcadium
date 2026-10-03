@@ -4,6 +4,7 @@ mod host;
 mod installed_game;
 mod installer;
 mod mode;
+pub mod paths;
 mod registry;
 mod runtime;
 mod score_store;
@@ -95,7 +96,7 @@ fn run_app(
         }
         let mut guide_failed = false;
         if app.take_guide_request() {
-            match Command::new("xdg-open")
+            match Command::new(guide_open_command())
                 .arg(DEVELOPER_GUIDE_URL)
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -128,6 +129,21 @@ fn run_app(
     }
 
     Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn guide_open_command() -> &'static str {
+    "xdg-open"
+}
+
+#[cfg(target_os = "macos")]
+fn guide_open_command() -> &'static str {
+    "open"
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn guide_open_command() -> &'static str {
+    "unsupported-platform"
 }
 
 fn select_adm_file(
