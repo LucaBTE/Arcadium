@@ -46,6 +46,14 @@ Apple Silicon Mac for a macOS aarch64 package, or on an Intel Mac for a macOS
 x86_64 package. Each archive contains the executable, installer, license, and
 committed bundled games.
 
+## Publish a release
+
+Maintainers should ensure `dev` CI is green, merge `dev` into `main`, and confirm
+the version in `crates/arcadium-cli/Cargo.toml`. Create a matching stable
+`vMAJOR.MINOR.PATCH` tag on `main` and push it. GitHub Actions then builds the
+Linux x86_64, macOS aarch64, and macOS x86_64 archives and publishes them as
+assets on a GitHub Release. Release tags must point to commits on `main`.
+
 ## WASM host API
 
 Games export `arcadium_init() -> i32` (zero means failure),
