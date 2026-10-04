@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-quality:
+    name: Host quality — Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Build release executable
+        run: |
+          cargo build --release -p arcadium-cli
+          test -x target/release/arcadium
+
+  host-macos:
+    name: Host compatibility — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Build release executable
+        run: |
+          cargo build --release -p arcadium-cli
+          test -x target/release/arcadium
+
+  guest-games:
+    name: Guest — ${{ matrix.game }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        game: [pong, snake, tictactoe]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust and WASM target
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+      - name: Check formatting
+        run: cargo fmt --manifest-path games/${{ matrix.game }}/Cargo.toml --check
+      - name: Test guest
+        run: cargo test --manifest-path games/${{ matrix.game }}/Cargo.toml
+      - name: Check WASM guest
+        run: cargo check --manifest-path games/${{ matrix.game }}/Cargo.toml --target wasm32-unknown-unknown
+      - name: Lint WASM guest
+        run: cargo clippy --manifest-path games/${{ matrix.game }}/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      - name: Build and verify bundled ADM
+        run: |
+          python3 --version
+          bash games/${{ matrix.game }}/build.sh
+          git diff --exit-code -- bundled-games/${{ matrix.game }}.adm
