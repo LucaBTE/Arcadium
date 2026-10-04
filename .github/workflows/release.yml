@@ -1,0 +1,113 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check tag, version, and main ancestry
+        run: |
+          if ! printf '%s\n' "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "Invalid release tag: $GITHUB_REF_NAME (expected vMAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
+          version=$(awk '
+            /^\[package\][[:space:]]*$/ { in_package = 1; next }
+            /^\[/ { in_package = 0 }
+            in_package && /^[[:space:]]*version[[:space:]]*=/ {
+              if (match($0, /"[^"]+"/)) {
+                print substr($0, RSTART + 1, RLENGTH - 2)
+                exit
+              }
+            }
+          ' crates/arcadium-cli/Cargo.toml)
+          if [ -z "$version" ] || [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Release tag $GITHUB_REF_NAME does not match CLI version $version." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo 'Release tag must point to a commit on main.' >&2
+            exit 1
+          fi
+
+  package:
+    name: Package — ${{ matrix.platform }}
+    needs: validate
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux-x86_64
+          - runner: macos-15
+            platform: macos-aarch64
+          - runner: macos-15-intel
+            platform: macos-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Build and check release archive
+        run: |
+          ./scripts/package-release.sh
+          archive="dist/arcadium-$GITHUB_REF_NAME-${{ matrix.platform }}.tar.gz"
+          test -f "$archive"
+          test "$(find dist -type f | wc -l)" -eq 1
+          tar -tzf "$archive" >/dev/null
+      - name: Transfer release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/arcadium-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Collect release archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      - name: Verify and publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for platform in linux-x86_64 macos-aarch64 macos-x86_64; do
+            test -f "release-assets/arcadium-$GITHUB_REF_NAME-$platform.tar.gz"
+          done
+          test "$(find release-assets -type f | wc -l)" -eq 3
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to replace it." >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            "release-assets/arcadium-$GITHUB_REF_NAME-linux-x86_64.tar.gz" \
+            "release-assets/arcadium-$GITHUB_REF_NAME-macos-aarch64.tar.gz" \
+            "release-assets/arcadium-$GITHUB_REF_NAME-macos-x86_64.tar.gz" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Arcadium $GITHUB_REF_NAME" \
+            --generate-notes
