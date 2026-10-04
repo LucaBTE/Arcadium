@@ -7,5 +7,5 @@
 !/adm-build/test_game/build.sh
 
 /games/pong/target
-
+/games/snake/target
 /games/tictactoe/target
