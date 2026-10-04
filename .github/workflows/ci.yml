@@ -61,16 +61,19 @@ jobs:
   guest-games:
     name: Guest — ${{ matrix.game }}
     runs-on: ubuntu-latest
+    # Committed WASM packages were built with Rust 1.98.0. Keep this exact
+    # compiler for byte-for-byte ADM verification until the packages are rebuilt.
     strategy:
       matrix:
         game: [pong, snake, tictactoe]
     steps:
       - uses: actions/checkout@v4
-      - name: Install stable Rust and WASM target
+      - name: Install Rust 1.98.0 and WASM target
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-          rustup default stable
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.98.0
           rustup target add wasm32-unknown-unknown
+          rustc --version
       - name: Check formatting
         run: cargo fmt --manifest-path games/${{ matrix.game }}/Cargo.toml --check
       - name: Test guest
