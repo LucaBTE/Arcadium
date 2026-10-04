@@ -32,6 +32,20 @@ For repository development, use the bundled game override from the repository ro
 ARCADIUM_BUNDLED_GAMES_DIR="$PWD/bundled-games" cargo run -p arcadium-cli
 ```
 
+## Build a release package
+
+From the repository root, build a native release archive with:
+
+```sh
+./scripts/package-release.sh
+```
+
+The script can also be invoked by absolute path from another directory. It writes
+to `dist/` in the repository. Run it on Linux x86_64 for a Linux package, on an
+Apple Silicon Mac for a macOS aarch64 package, or on an Intel Mac for a macOS
+x86_64 package. Each archive contains the executable, installer, license, and
+committed bundled games.
+
 ## WASM host API
 
 Games export `arcadium_init() -> i32` (zero means failure),

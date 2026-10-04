@@ -1,4 +1,5 @@
 /target
+/dist/
 /adm-build/*
 !/adm-build/test_game/
 /adm-build/test_game/*
