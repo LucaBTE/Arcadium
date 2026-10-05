@@ -32,12 +32,19 @@ Arcadium is available for Linux (x86-64) and macOS (Apple Silicon or Intel).
    ```sh
    ./install.sh
    ```
+   Note: you might need to first move into the 'arcadium-v0.1.0' folder first
+   ```sh
+   cd arcadium-v0.1.0
+   ./install.sh
+   ```
+
 
 3. Start the app with:
 
    ```sh
    arcadium
    ```
+   NOTE: You can run 'arcadium' command wherever you want! You don't have to go everytime inside the extracted folder.
 
 If `arcadium` is not found, run `~/.local/bin/arcadium`. The installer also shows how to add that folder to your `PATH`.
 
