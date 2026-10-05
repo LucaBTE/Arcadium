@@ -125,6 +125,7 @@ impl GameRuntime {
                 i32::from(caller.data().host.key_pressed(key))
             },
         )?;
+        linker.func_wrap("arcadium", "random_u32", || fastrand::u32(..))?;
         linker.func_wrap(
             "arcadium",
             "load_score",
@@ -249,6 +250,76 @@ fn invalid_data(message: impl Into<String>) -> io::Error {
 mod tests {
     use super::*;
     use crate::host::key;
+
+    #[test]
+    fn bundled_snake_loads_with_random_host_import() -> Result<(), Box<dyn Error>> {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../bundled-games/snake.adm");
+        let mut archive = ZipArchive::new(File::open(path)?)?;
+        let mut wasm = Vec::new();
+        archive.by_name("game.wasm")?.read_to_end(&mut wasm)?;
+        let engine = create_engine()?;
+        let module = Module::from_binary(&engine, &wasm)?;
+        let mut game = GameRuntime::instantiate(&engine, &module)?;
+        game.resize(80, 24);
+        game.init()?;
+        game.begin_frame();
+        game.update(0.016)?;
+        Ok(())
+    }
+
+    #[test]
+    fn bundled_tictactoe_opening_moves_fit_execution_budget() -> Result<(), Box<dyn Error>> {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../bundled-games/tictactoe.adm"
+        );
+        let mut archive = ZipArchive::new(File::open(path)?)?;
+        let mut wasm = Vec::new();
+        archive.by_name("game.wasm")?.read_to_end(&mut wasm)?;
+        let engine = create_engine()?;
+        let module = Module::from_binary(&engine, &wasm)?;
+
+        for (width, height) in [(80, 24), (100, 32), (120, 40)] {
+            for opening in 0..9 {
+                let mut game = GameRuntime::instantiate(&engine, &module)?;
+                game.resize(width, height);
+                game.init()?;
+                game.begin_frame();
+                game.press_key(key::ENTER);
+                game.update(0.016)?;
+
+                let row = opening / 3;
+                let column = opening % 3;
+                for _ in row..1 {
+                    game.begin_frame();
+                    game.press_key(key::UP);
+                    game.update(0.016)?;
+                }
+                for _ in 1..row {
+                    game.begin_frame();
+                    game.press_key(key::DOWN);
+                    game.update(0.016)?;
+                }
+                for _ in column..1 {
+                    game.begin_frame();
+                    game.press_key(key::LEFT);
+                    game.update(0.016)?;
+                }
+                for _ in 1..column {
+                    game.begin_frame();
+                    game.press_key(key::RIGHT);
+                    game.update(0.016)?;
+                }
+
+                game.begin_frame();
+                game.press_key(key::ENTER);
+                game.update(0.016).unwrap_or_else(|error| {
+                    panic!("opening at square {opening} on {width}x{height} failed: {error}")
+                });
+            }
+        }
+        Ok(())
+    }
 
     fn runtime(wat: &str) -> Result<GameRuntime, Box<dyn Error>> {
         let engine = create_engine()?;

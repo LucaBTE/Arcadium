@@ -11,8 +11,8 @@ const SPEED_STEP: f32 = 0.005;
 const MAX_DELTA: f32 = 0.25;
 const BOOST_FACTOR: f32 = 0.65;
 const REPEAT_WINDOW: f32 = 0.22;
-const ROCK_EVERY: u32 = 3;
-const MAX_ROCKS: usize = 6;
+const FIRST_ROCK_SCORE: u32 = 3;
+const ROCK_EVERY: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Point {
@@ -121,6 +121,10 @@ struct Game {
 
 impl Game {
     fn new(field: Field) -> Self {
+        Self::with_seed(field, random_seed())
+    }
+
+    fn with_seed(field: Field, seed: u32) -> Self {
         let head = Point {
             x: field.columns() / 2,
             y: (PLAY_TOP + field.height - 2) / 2,
@@ -145,10 +149,7 @@ impl Game {
             exit_requested: false,
             accumulator: 0.0,
             state: State::Ready,
-            rng: ((field.width as u32).wrapping_mul(0x9e3779b9)
-                ^ (field.height as u32)
-                ^ 0xa341316c)
-                | 1,
+            rng: seed | 1,
         };
         game.spawn_food(field);
         game
@@ -260,8 +261,8 @@ impl Game {
             self.best_score = self.best_score.max(self.score);
             self.spawn_food(field);
             if self.state == State::Playing
-                && self.score.is_multiple_of(ROCK_EVERY)
-                && self.rocks.len() < MAX_ROCKS
+                && self.score >= FIRST_ROCK_SCORE
+                && (self.score - FIRST_ROCK_SCORE).is_multiple_of(ROCK_EVERY)
             {
                 self.spawn_rock(field);
             }
@@ -316,6 +317,20 @@ impl Game {
             }
         }
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn random_seed() -> u32 {
+    #[link(wasm_import_module = "arcadium")]
+    unsafe extern "C" {
+        fn random_u32() -> u32;
+    }
+    unsafe { random_u32() }
+}
+
+#[cfg(test)]
+fn random_seed() -> u32 {
+    0xa341316c
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -406,6 +421,25 @@ mod tests {
         let mut game = Game::new(FIELD);
         game.state = State::Playing;
         game
+    }
+
+    #[test]
+    fn seeds_vary_apple_and_rock_positions_at_the_same_field_size() {
+        let mut apples = std::collections::HashSet::new();
+        let mut rocks = std::collections::HashSet::new();
+        for seed in (1..=31).step_by(2) {
+            let mut game = Game::with_seed(FIELD, seed);
+            apples.insert((game.food.x, game.food.y));
+            game.state = State::Playing;
+            for _ in 0..3 {
+                game.food = game.direction.next(game.snake[0]);
+                game.step(FIELD);
+            }
+            assert_eq!(game.rocks.len(), 1);
+            rocks.insert((game.rocks[0].x, game.rocks[0].y));
+        }
+        assert!(apples.len() > 1);
+        assert!(rocks.len() > 1);
     }
 
     #[test]
@@ -529,6 +563,21 @@ mod tests {
         game.rocks = vec![game.direction.next(game.snake[0])];
         game.step(FIELD);
         assert_eq!(game.state, State::GameOver);
+    }
+
+    #[test]
+    fn rocks_keep_appearing_every_two_points_after_three() {
+        let mut game = playing();
+        for score in 1..=17 {
+            // Keep the next food reachable while retaining all spawned rocks.
+            game.snake = vec![Point { x: 3, y: 5 }];
+            game.food = Point { x: 4, y: 5 };
+            game.step(FIELD);
+            assert_eq!(game.state, State::Playing);
+            assert_eq!(game.score, score);
+            let expected_rocks = if score < 3 { 0 } else { (score - 3) / 2 + 1 };
+            assert_eq!(game.rocks.len(), expected_rocks as usize);
+        }
     }
 
     #[test]

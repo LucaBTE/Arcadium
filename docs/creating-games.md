@@ -100,6 +100,7 @@ Call imported functions inside `unsafe` blocks. The current imports are:
 | `draw_char(x: i32, y: i32, character: i32)` | Draw a character with default colors |
 | `draw_cell(x: i32, y: i32, character: i32, foreground: i32, background: i32)` | Draw a colored character |
 | `key_pressed(key: i32) -> i32` | Read this frame's key input |
+| `random_u32() -> u32` | Get a host-generated random value |
 | `load_score() -> i64` | Read this game's saved score |
 | `save_score(score: i64) -> i32` | Save a nonnegative score; returns 1 on success |
 | `request_exit()` | Return to the library after the update |
