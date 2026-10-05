@@ -34,6 +34,8 @@ const DRAW_DURATION: f32 = 1.8;
 const DRAW_BLINK_INTERVAL: f32 = 0.45;
 
 const MOVE_ORDER: [usize; 9] = [4, 0, 2, 6, 8, 1, 3, 5, 7];
+const POWERS_OF_THREE: [usize; 9] = [1, 3, 9, 27, 81, 243, 729, 2187, 6561];
+const UNCACHED: i8 = i8::MAX;
 
 fn winning_line(board: &[Mark; 9]) -> Option<[usize; 3]> {
     WINS.into_iter()
@@ -51,19 +53,44 @@ fn result(board: &[Mark; 9]) -> Option<Mark> {
         .then_some(Mark::Empty)
 }
 
-fn minimax(mut board: [Mark; 9], turn: Mark, depth: i32) -> i32 {
+fn mark_digit(mark: Mark) -> usize {
+    match mark {
+        Mark::Empty => 0,
+        Mark::X => 1,
+        Mark::O => 2,
+    }
+}
+
+fn minimax(
+    mut board: [Mark; 9],
+    turn: Mark,
+    depth: i8,
+    code: usize,
+    cache: &mut [i8; 19683],
+) -> i8 {
+    if cache[code] != UNCACHED {
+        return cache[code];
+    }
     if let Some(winner) = result(&board) {
-        return match winner {
+        let score = match winner {
             Mark::O => 10 - depth,
             Mark::X => depth - 10,
             Mark::Empty => 0,
         };
+        cache[code] = score;
+        return score;
     }
     let mut best = if turn == Mark::O { -100 } else { 100 };
     for index in MOVE_ORDER {
         if board[index] == Mark::Empty {
             board[index] = turn;
-            let score = minimax(board, turn.opponent(), depth + 1);
+            let score = minimax(
+                board,
+                turn.opponent(),
+                depth + 1,
+                code + mark_digit(turn) * POWERS_OF_THREE[index],
+                cache,
+            );
             board[index] = Mark::Empty;
             best = if turn == Mark::O {
                 best.max(score)
@@ -72,6 +99,7 @@ fn minimax(mut board: [Mark; 9], turn: Mark, depth: i32) -> i32 {
             };
         }
     }
+    cache[code] = best;
     best
 }
 
@@ -79,12 +107,24 @@ fn ai_move(mut board: [Mark; 9]) -> Option<usize> {
     if result(&board).is_some() {
         return None;
     }
+    let mut cache = [UNCACHED; 19683];
+    let code: usize = board
+        .iter()
+        .enumerate()
+        .map(|(index, &mark)| mark_digit(mark) * POWERS_OF_THREE[index])
+        .sum();
     let mut best_score = -100;
     let mut best_move = None;
     for index in MOVE_ORDER {
         if board[index] == Mark::Empty {
             board[index] = Mark::O;
-            let score = minimax(board, Mark::X, 1);
+            let score = minimax(
+                board,
+                Mark::X,
+                1,
+                code + 2 * POWERS_OF_THREE[index],
+                &mut cache,
+            );
             board[index] = Mark::Empty;
             if score > best_score {
                 best_score = score;

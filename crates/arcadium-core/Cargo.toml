@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 arcadium-sdk = { path = "../arcadium-sdk" }
 crossterm = "0.29"
+fastrand = "2.5"
 ratatui = "0.30.2"
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 toml = "0.9"

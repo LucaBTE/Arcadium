@@ -70,6 +70,7 @@ Core WebAssembly imports use the `arcadium` namespace:
 | `draw_char` | `(x: i32, y: i32, character: i32)` |
 | `draw_cell` | `(x: i32, y: i32, character: i32, foreground: i32, background: i32)` |
 | `key_pressed` | `(key: i32) -> i32` |
+| `random_u32` | `() -> u32` |
 | `load_score` | `() -> i64` |
 | `save_score` | `(score: i64) -> i32` |
 | `request_exit` | `()` |
@@ -95,6 +96,9 @@ Key codes: `UP=0`, `DOWN=1`, `LEFT=2`, `RIGHT=3`, `W=4`, `A=5`, `S=6`,
 `key_pressed` returns 1 when a press or repeat was received this frame, otherwise
 0 (including unknown codes). Repeated queries do not consume input. ESC belongs
 to Arcadium and shuts down the game before returning to the library.
+
+`random_u32` returns a host-generated value for games that need fresh random
+seeds, including between rounds at the same screen size.
 
 `load_score` reads the game's saved score, returning zero if none exists.
 `save_score` accepts a nonnegative `u32` value and returns 1 on success or 0
