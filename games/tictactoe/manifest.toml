@@ -1,0 +1,10 @@
+[game]
+id = "com.arcadium.tictactoe"
+name = "Tic Tac Toe"
+author = "Arcadium"
+version = "0.1.0"
+description = "Classic Tic Tac Toe against the computer or a friend."
+
+[arcadium]
+sdk = 1
+entry = "game.wasm"

@@ -1,0 +1,10 @@
+[game]
+id = "com.arcadium.pong"
+name = "Pong"
+author = "Arcadium"
+version = "0.1.0"
+description = "Terminal Pong against the computer or a friend."
+
+[arcadium]
+sdk = 1
+entry = "game.wasm"

@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-quality:
+    name: Host quality — Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Package and inspect Linux release
+        run: |
+          ./scripts/package-release.sh
+          set -- dist/arcadium-v*-linux-x86_64.tar.gz
+          test "$#" -eq 1 && test -f "$1"
+          archive=$1
+          bundle=${archive##*/}
+          bundle=${bundle%-linux-x86_64.tar.gz}
+          unpack_dir=$(mktemp -d)
+          trap 'rm -rf "$unpack_dir"' EXIT
+          tar -xzf "$archive" -C "$unpack_dir"
+          release_dir=$unpack_dir/$bundle
+          test -x "$release_dir/arcadium"
+          test -x "$release_dir/install.sh"
+          test -f "$release_dir/LICENSE"
+          for game in pong snake tictactoe; do
+            test -f "$release_dir/bundled-games/$game.adm"
+          done
+          test "$(find "$unpack_dir" -type f | wc -l)" -eq 6
+          test "$(find "$unpack_dir" -type d | wc -l)" -eq 3
+          test_home=$unpack_dir/home
+          test_data=$unpack_dir/data
+          mkdir -p "$test_home" "$test_data"
+          env HOME="$test_home" XDG_DATA_HOME="$test_data" "$release_dir/install.sh"
+          test -x "$test_home/.local/bin/arcadium"
+          test -d "$test_data/arcadium/games"
+          for game in pong snake tictactoe; do
+            cmp "$release_dir/bundled-games/$game.adm" "$test_data/arcadium/bundled-games/$game.adm"
+          done
+
+  host-macos:
+    name: Host compatibility — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-15
+            platform: macos-aarch64
+          - os: macos-15-intel
+            platform: macos-x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Check workspace
+        run: cargo check --workspace
+      - name: Test workspace
+        run: cargo test --workspace
+      - name: Package and inspect macOS release
+        run: |
+          ./scripts/package-release.sh
+          set -- dist/arcadium-v*-${{ matrix.platform }}.tar.gz
+          test "$#" -eq 1 && test -f "$1"
+          archive=$1
+          bundle=${archive##*/}
+          bundle=${bundle%-${{ matrix.platform }}.tar.gz}
+          unpack_dir=$(mktemp -d)
+          trap 'rm -rf "$unpack_dir"' EXIT
+          tar -xzf "$archive" -C "$unpack_dir"
+          release_dir=$unpack_dir/$bundle
+          test -x "$release_dir/arcadium"
+          test -x "$release_dir/install.sh"
+          test -f "$release_dir/LICENSE"
+          for game in pong snake tictactoe; do
+            test -f "$release_dir/bundled-games/$game.adm"
+          done
+          test "$(find "$unpack_dir" -type f | wc -l)" -eq 6
+          test "$(find "$unpack_dir" -type d | wc -l)" -eq 3
+          test_home=$unpack_dir/home
+          mkdir -p "$test_home"
+          env HOME="$test_home" "$release_dir/install.sh"
+          test -x "$test_home/.local/bin/arcadium"
+          test -d "$test_home/Library/Application Support/Arcadium/games"
+          for game in pong snake tictactoe; do
+            cmp "$release_dir/bundled-games/$game.adm" "$test_home/Library/Application Support/Arcadium/bundled-games/$game.adm"
+          done
+
+  guest-games:
+    name: Guest — ${{ matrix.game }}
+    runs-on: ubuntu-latest
+    # Committed WASM packages were built with Rust 1.98.0. Keep this exact
+    # compiler for byte-for-byte ADM verification until the packages are rebuilt.
+    strategy:
+      matrix:
+        game: [pong, snake, tictactoe]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.98.0 and WASM target
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal --component rustfmt --component clippy
+          rustup default 1.98.0
+          rustup target add wasm32-unknown-unknown
+          rustc --version
+      - name: Check formatting
+        run: cargo fmt --manifest-path games/${{ matrix.game }}/Cargo.toml --check
+      - name: Test guest
+        run: cargo test --manifest-path games/${{ matrix.game }}/Cargo.toml
+      - name: Check WASM guest
+        run: cargo check --manifest-path games/${{ matrix.game }}/Cargo.toml --target wasm32-unknown-unknown
+      - name: Lint WASM guest
+        run: cargo clippy --manifest-path games/${{ matrix.game }}/Cargo.toml --target wasm32-unknown-unknown -- -D warnings
+      - name: Build and verify bundled ADM
+        run: |
+          python3 --version
+          bash games/${{ matrix.game }}/build.sh
+          git diff --exit-code -- bundled-games/${{ matrix.game }}.adm

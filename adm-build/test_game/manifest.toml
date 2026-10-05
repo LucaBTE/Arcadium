@@ -1,0 +1,10 @@
+[game]
+id = "com.arcadium.host-test"
+name = "Host API Test"
+author = "Arcadium"
+version = "0.1.0"
+description = "Move @ with left and right arrows."
+
+[arcadium]
+sdk = 1
+entry = "game.wasm"

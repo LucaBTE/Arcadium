@@ -1,0 +1,10 @@
+[game]
+id = "com.arcadium.snake"
+name = "Snake"
+author = "Arcadium"
+version = "0.1.0"
+description = "Classic terminal Snake."
+
+[arcadium]
+sdk = 1
+entry = "game.wasm"

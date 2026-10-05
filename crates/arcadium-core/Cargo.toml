@@ -1,0 +1,14 @@
+[package]
+name = "arcadium-core"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arcadium-sdk = { path = "../arcadium-sdk" }
+crossterm = "0.29"
+fastrand = "2.5"
+ratatui = "0.30.2"
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+toml = "0.9"
+wasmtime = "48.0.2"
+zip = "8.6.0"
